@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.org/draft-07/schema#",
+  "title": "KB Loader Log — SharePoint list schema",
+  "description": "Suggested fields for the SharePoint list used as the durable activity log. Create a custom list with these columns; the app writes one item per action.",
+  "fields": [
+    { "name": "Title",              "type": "Single line of text", "required": true,  "note": "File name." },
+    { "name": "Action",             "type": "Choice",              "choices": ["scan", "process", "load", "skip"] },
+    { "name": "Status",             "type": "Choice",              "choices": ["success", "error", "info"] },
+    { "name": "Message",            "type": "Multiple lines of text" },
+    { "name": "SourcePath",         "type": "Single line of text" },
+    { "name": "KnowledgeArticleId", "type": "Single line of text" },
+    { "name": "Timestamp",          "type": "Date and Time" }
+  ]
+}
