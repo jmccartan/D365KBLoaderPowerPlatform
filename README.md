@@ -64,19 +64,36 @@ sample files end-to-end without touching SharePoint or Dataverse.
 
 ### Prerequisites
 
+**Local tooling**
+
+- **Node.js 18 LTS or newer** (Vite 5 / React 18 requirement).
+- **.NET SDK 6+** — needed to install the Power Platform CLI as a global tool.
 - **Power Platform CLI (`pac`)** installed locally. Install via:
   ```powershell
   dotnet tool install --global Microsoft.PowerApps.CLI.Tool
   ```
   Or use the [winget](https://learn.microsoft.com/power-platform/developer/cli/introduction#install-power-platform-cli) /
   MSI installer documented by Microsoft.
+
+**Identity & environment**
+
 - A signed-in account with **Power Platform admin** (or equivalent
   environment-maker) privileges in the target environment. `pac code init` and
   `pac code push` both write into Dataverse, and `pac code add-data-source`
   registers connector references — these all require admin-level permissions.
+- **Code Apps preview must be enabled** on the target environment
+  (Power Platform Admin Center → Environments → *your env* → Settings →
+  Product → Features → **Code Apps**). Without this flag, `pac code init`
+  and `pac code push` will fail.
 - A Dataverse environment that includes the **Dynamics 365 Customer Service**
   (or another Knowledge-enabled) solution, so the `knowledgearticle` table
   exists.
+
+**Licensing**
+
+- The maker and all end-users need a **Power Apps Premium** (or per-app)
+  license. Code Apps use the Dataverse and SharePoint connectors which are
+  premium.
 
 ### Steps
 
@@ -125,6 +142,34 @@ sample files end-to-end without touching SharePoint or Dataverse.
 
    > **Note:** there is no SharePoint list to create. Per-run reports are
    > written directly to the source folder as `.xlsx` files.
+
+### After deployment
+
+- **Authorize connections** — first time the app runs, Power Apps will prompt
+  the user to sign in to the SharePoint and Dataverse connectors. They must
+  consent before the app can list sites or create articles.
+- **Share the app** — from the Power Apps maker portal
+  (`make.powerapps.com`), open the published app and share it with the users
+  or AAD security group that should be able to run it.
+- **End-user permissions** — each runner needs:
+  - **Contribute** (or higher) on the target SharePoint folder, so the
+    Excel report can be uploaded.
+  - A Dataverse security role that grants **Create** on `knowledgearticle`
+    (e.g., *Customer Service Representative* or *Knowledge Manager*).
+  - A **Power Apps Premium** license (see Prerequisites).
+
+## Troubleshooting
+
+- **`.env.local` changes don't take effect** — Vite reads env vars at startup;
+  stop and restart `npm run dev`.
+- **`pac code init` fails with a feature-not-enabled error** — Code Apps
+  preview isn't turned on for the environment (see Prerequisites).
+- **Connector 401 / 403 after push** — open the app once in Power Apps to
+  authorize each connection, or re-share the connection from the maker portal.
+- **Empty folder browser** — verify the signed-in user has access to the
+  SharePoint site; the connector silently returns an empty list if not.
+- **Report didn't upload** — check the runner has Contribute on the folder.
+  The in-app Progress tab surfaces the underlying SharePoint error.
 
 ## Field mapping (knowledgearticle)
 
