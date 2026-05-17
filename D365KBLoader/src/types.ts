@@ -71,6 +71,13 @@ export interface KbUser {
 /** What to do when a candidate article already exists in the KB. */
 export type DuplicateAction = 'create-new' | 'skip' | 'update-existing';
 
+export interface SavedScanProfile {
+  id: string;
+  name: string;
+  config: KbConfig;
+  environmentId?: string;
+}
+
 export interface KbConfig {
   siteUrl: string;
   folderPath: string;

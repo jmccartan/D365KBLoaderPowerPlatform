@@ -77,6 +77,10 @@ const useStyles = makeStyles({
     fontWeight: tokens.fontWeightSemibold,
     marginTop: tokens.spacingVerticalS,
   },
+  subtitle: {
+    marginTop: tokens.spacingVerticalXS,
+    color: tokens.colorNeutralForeground3,
+  },
 });
 
 export interface SuggestEditsDialogProps {
@@ -85,13 +89,17 @@ export interface SuggestEditsDialogProps {
   error?: string;
   suggestion?: ArticleSuggestion;
   currentTitle: string;
+  titleText?: string;
+  subtitleText?: string;
+  queueLabel?: string;
   onAccept: (suggestion: ArticleSuggestion) => void;
   onDecline: () => void;
   onRegenerate: () => void;
+  onSkipAll?: () => void;
 }
 
 export function SuggestEditsDialog({
-  open, loading, error, suggestion, currentTitle, onAccept, onDecline, onRegenerate,
+  open, loading, error, suggestion, currentTitle, titleText, subtitleText, queueLabel, onAccept, onDecline, onRegenerate, onSkipAll,
 }: SuggestEditsDialogProps) {
   const s = useStyles();
   const [tab, setTab] = useState<'preview' | 'html'>('preview');
@@ -99,13 +107,16 @@ export function SuggestEditsDialog({
   const titleChanged = suggestion?.title && suggestion.title !== currentTitle;
 
   return (
-    <Dialog open={open} onOpenChange={(_, d) => { if (!d.open) onDecline(); }} modalType="modal">
+    <Dialog open={open} onOpenChange={(_, data) => { if (!data.open) onDecline(); }} modalType="modal">
       <DialogSurface className={s.surface}>
         <DialogBody>
           <DialogTitle>
             <div className={s.header}>
               <span className={s.icon}><Sparkle24Filled /></span>
-              <span>Copilot suggestions</span>
+              <span>{titleText ?? 'Copilot suggestions'}</span>
+              {queueLabel && (
+                <Badge appearance="tint" color="brand">{queueLabel}</Badge>
+              )}
               {suggestion && suggestion.changes.length > 0 && (
                 <Badge appearance="tint" color="brand">
                   {suggestion.changes.length} change{suggestion.changes.length === 1 ? '' : 's'}
@@ -114,6 +125,10 @@ export function SuggestEditsDialog({
             </div>
           </DialogTitle>
           <DialogContent>
+            {subtitleText && (
+              <Text block className={s.subtitle}>{subtitleText}</Text>
+            )}
+
             {loading && (
               <div className={s.loading}>
                 <Spinner size="large" />
@@ -151,8 +166,8 @@ export function SuggestEditsDialog({
                       Proposed changes
                     </Text>
                     <ul className={s.changes}>
-                      {suggestion.changes.map((c, i) => (
-                        <li key={i}><Text size={300}>{c}</Text></li>
+                      {suggestion.changes.map((change, index) => (
+                        <li key={index}><Text size={300}>{change}</Text></li>
                       ))}
                     </ul>
                   </div>
@@ -161,7 +176,7 @@ export function SuggestEditsDialog({
                 <div style={{ marginTop: tokens.spacingVerticalL }}>
                   <TabList
                     selectedValue={tab}
-                    onTabSelect={(_, d) => setTab(d.value as 'preview' | 'html')}
+                    onTabSelect={(_, data) => setTab(data.value as 'preview' | 'html')}
                     appearance="subtle-circular"
                   >
                     <Tab icon={<Eye20Regular />} value="preview">Preview</Tab>
@@ -192,6 +207,11 @@ export function SuggestEditsDialog({
             >
               Regenerate
             </Button>
+            {onSkipAll && (
+              <Button appearance="subtle" onClick={onSkipAll} disabled={loading}>
+                Skip all remaining
+              </Button>
+            )}
             <Button
               appearance="secondary"
               icon={<DismissCircle20Filled />}

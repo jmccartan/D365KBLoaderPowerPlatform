@@ -31,6 +31,10 @@ export interface KbLoaderService {
   downloadFile(file: SourceFile): Promise<ArrayBuffer>;
   /** Optional hook used during DOCX conversion to externalize inline images. */
   uploadImage?(name: string, bytes: ArrayBuffer, contentType: string): Promise<string>;
+  /** Persist and retrieve saved scan profiles for the configure step. */
+  listProfiles(): Promise<import('../types').SavedScanProfile[]>;
+  saveProfile(profile: import('../types').SavedScanProfile): Promise<import('../types').SavedScanProfile>;
+  deleteProfile(id: string): Promise<void>;
   createKnowledgeArticle(article: ProcessedArticle, config?: KbConfig): Promise<{ id: string; url?: string }>;
   /** Persist a formatted Excel report of the run to the source folder (or download in mock mode). */
   writeReport(config: KbConfig, log: LogEntry[]): Promise<ReportResult>;

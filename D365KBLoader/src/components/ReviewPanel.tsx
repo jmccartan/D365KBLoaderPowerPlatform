@@ -228,6 +228,9 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
   const [copilotLoading, setCopilotLoading] = useState(false);
   const [copilotError, setCopilotError] = useState<string | undefined>();
   const [suggestion, setSuggestion] = useState<ArticleSuggestion | undefined>();
+  const [copilotMode, setCopilotMode] = useState<'single' | 'bulk'>('single');
+  const [bulkQueue, setBulkQueue] = useState<string[]>([]);
+  const [bulkIndex, setBulkIndex] = useState(0);
 
   const [overlapScanning, setOverlapScanning] = useState(false);
   const [overlapError, setOverlapError] = useState<string | undefined>();
@@ -243,6 +246,9 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
     setEditDraft(active?.html ?? '');
   }, [active?.id, active?.html]);
 
+  const suggestionTarget = copilotMode === 'bulk'
+    ? articles.find(article => article.id === bulkQueue[bulkIndex])
+    : active;
   const allSelected = articles.length > 0 && articles.every(article => article.selected || (blockPiiOnLoad && article.findings.length > 0));
   const someSelected = articles.some(article => article.selected) && !allSelected;
   const selectedCount = articles.filter(article => article.selected).length;
@@ -267,7 +273,11 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
     })));
   };
 
-  async function requestSuggestions(target: ProcessedArticle) {
+  async function openSuggestion(target: ProcessedArticle, mode: 'single' | 'bulk', queue: string[] = [], index = 0) {
+    setCopilotMode(mode);
+    setBulkQueue(queue);
+    setBulkIndex(index);
+    setActiveId(target.id);
     setCopilotOpen(true);
     setCopilotLoading(true);
     setCopilotError(undefined);
@@ -282,15 +292,65 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
     }
   }
 
-  function acceptSuggestion(target: ProcessedArticle, nextSuggestion: ArticleSuggestion) {
+  function closeCopilot() {
+    setCopilotOpen(false);
+    setSuggestion(undefined);
+    setCopilotError(undefined);
+    setCopilotMode('single');
+    setBulkQueue([]);
+    setBulkIndex(0);
+  }
+
+  async function requestSuggestions(target: ProcessedArticle) {
+    await openSuggestion(target, 'single');
+  }
+
+  async function startBulkSuggestions() {
+    const queue = articles.filter(article => article.selected).map(article => article.id);
+    if (queue.length === 0) {
+      return;
+    }
+    const first = articles.find(article => article.id === queue[0]);
+    if (!first) {
+      return;
+    }
+    await openSuggestion(first, 'bulk', queue, 0);
+  }
+
+  async function goToNextBulk(currentIndex: number) {
+    const nextIndex = currentIndex + 1;
+    if (nextIndex >= bulkQueue.length) {
+      closeCopilot();
+      return;
+    }
+    const nextTarget = articles.find(article => article.id === bulkQueue[nextIndex]);
+    if (!nextTarget) {
+      closeCopilot();
+      return;
+    }
+    await openSuggestion(nextTarget, 'bulk', bulkQueue, nextIndex);
+  }
+
+  async function handleDeclineSuggestion() {
+    if (copilotMode === 'bulk') {
+      await goToNextBulk(bulkIndex);
+      return;
+    }
+    closeCopilot();
+  }
+
+  async function acceptSuggestion(target: ProcessedArticle, nextSuggestion: ArticleSuggestion) {
     const cleaned = sanitizeArticleHtml(nextSuggestion.html);
     update(target.id, {
       html: cleaned,
       ...(nextSuggestion.title ? { title: nextSuggestion.title } : {}),
     });
     setEditDraft(cleaned);
-    setCopilotOpen(false);
-    setSuggestion(undefined);
+    if (copilotMode === 'bulk') {
+      await goToNextBulk(bulkIndex);
+      return;
+    }
+    closeCopilot();
   }
 
   function commitEditHtml() {
@@ -356,6 +416,15 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
             checked={allSelected ? true : someSelected ? 'mixed' : false}
             onChange={toggleAll}
           />
+          <Button
+            appearance="secondary"
+            size="large"
+            icon={<Sparkle20Filled />}
+            onClick={() => { void startBulkSuggestions(); }}
+            disabled={selectedCount === 0 || copilotLoading}
+          >
+            Apply Copilot to selected
+          </Button>
           <Button
             appearance="secondary"
             size="large"
@@ -507,7 +576,7 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
                   <Button
                     appearance="primary"
                     icon={<Sparkle20Filled />}
-                    onClick={() => requestSuggestions(active)}
+                    onClick={() => { void requestSuggestions(active); }}
                     disabled={copilotLoading}
                   >
                     Suggest edits with Copilot
@@ -569,10 +638,14 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
         loading={copilotLoading}
         error={copilotError}
         suggestion={suggestion}
-        currentTitle={active?.title ?? ''}
-        onAccept={nextSuggestion => active && acceptSuggestion(active, nextSuggestion)}
-        onDecline={() => { setCopilotOpen(false); setSuggestion(undefined); }}
-        onRegenerate={() => active && requestSuggestions(active)}
+        currentTitle={suggestionTarget?.title ?? ''}
+        titleText={copilotMode === 'bulk' ? 'Copilot review queue' : 'Copilot suggestions'}
+        subtitleText={suggestionTarget ? `${suggestionTarget.title} · ${suggestionTarget.source.name}` : undefined}
+        queueLabel={copilotMode === 'bulk' ? `${bulkIndex + 1} of ${bulkQueue.length}` : undefined}
+        onAccept={nextSuggestion => suggestionTarget && acceptSuggestion(suggestionTarget, nextSuggestion)}
+        onDecline={() => { void handleDeclineSuggestion(); }}
+        onRegenerate={() => suggestionTarget && void openSuggestion(suggestionTarget, copilotMode, bulkQueue, bulkIndex)}
+        onSkipAll={copilotMode === 'bulk' ? closeCopilot : undefined}
       />
     </Card>
   );

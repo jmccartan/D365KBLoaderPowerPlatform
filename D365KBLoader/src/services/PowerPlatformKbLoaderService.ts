@@ -1,5 +1,5 @@
 import type { KbLoaderService } from './KbLoaderService';
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch, PowerPlatformEnvironment, KbLanguage, KbSubject, KbUser } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch, PowerPlatformEnvironment, KbLanguage, KbSubject, KbUser, SavedScanProfile } from '../types';
 import { classify } from '../processing/pipeline';
 import { buildReportWorkbook } from '../reporting/report';
 import { buildMockSuggestion } from './copilotSuggest';
@@ -218,6 +218,30 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
     return `data:${contentType};base64,${arrayBufferToBase64(bytes)}`;
   }
 
+  async listProfiles(): Promise<SavedScanProfile[]> {
+    // TODO(real connector): Store profile rows in a lightweight Dataverse custom
+    // table (e.g. jm_kbloaderprofile with name, config JSON, environment id,
+    // owner) or in an MSAL-cached user-preferences payload so profiles roam per
+    // maker without requiring extra infrastructure.
+    return readProfilesFallback();
+  }
+
+  async saveProfile(profile: SavedScanProfile): Promise<SavedScanProfile> {
+    // TODO(real connector): Upsert the profile row by id into Dataverse, scoped
+    // to the current user. Fallback keeps real-mode demos functional until the
+    // custom table and generated client are added.
+    const next = { ...profile, name: profile.name.trim() };
+    const profiles = readProfilesFallback().filter(existing => existing.id !== next.id);
+    profiles.push(next);
+    writeProfilesFallback(profiles);
+    return next;
+  }
+
+  async deleteProfile(id: string): Promise<void> {
+    // TODO(real connector): Delete the corresponding Dataverse custom-table row.
+    writeProfilesFallback(readProfilesFallback().filter(profile => profile.id !== id));
+  }
+
   async createKnowledgeArticle(article: ProcessedArticle, config?: KbConfig): Promise<{ id: string; url?: string }> {
     const dv = await loadDataverseClient();
     const langId = article.languageId ?? config?.defaultLanguageId;
@@ -254,6 +278,17 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
     });
     const location = `${config.folderPath || '/'}/${fileName}`.replace(/\/+/g, '/');
     return { fileName, location };
+  }
+
+  async emailReport(to: string[], subject: string, html: string, attachment: { fileName: string; buffer: ArrayBuffer }): Promise<void> {
+    // TODO(real connector): Call the Outlook connector's SendEmailV2 action with
+    //   - To = comma-joined recipient list
+    //   - Subject = subject
+    //   - Body = html
+    //   - Attachments = [{ Name: attachment.fileName, ContentBytes: base64(buffer) }]
+    // so the generated .xlsx run report is mailed directly from the maker's
+    // mailbox. Until that action is wired, log the payload for local validation.
+    console.log('TODO SendEmailV2', { to, subject, html, attachment: { fileName: attachment.fileName, bytes: attachment.buffer.byteLength } });
   }
 
   async suggestEdits(article: ProcessedArticle): Promise<ArticleSuggestion> {
@@ -328,6 +363,31 @@ function arrayBufferToBase64(bytes: ArrayBuffer): string {
   }
   return btoa(binary);
 }
+
+function readProfilesFallback(): SavedScanProfile[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(PROFILES_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw) as SavedScanProfile[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeProfilesFallback(profiles: SavedScanProfile[]) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+}
+
+const PROFILES_KEY = 'kbloader.profiles';
 
 // Minimal LCID lookup for the languages most D365 KB orgs use. Extend as needed.
 const LCID_TO_CODE: Record<number, string> = {

@@ -6,15 +6,17 @@ import { BookDatabase24Filled, Sparkle20Filled } from '@fluentui/react-icons';
 import { ConfigPanel } from './components/ConfigPanel';
 import { KbDefaultsCard } from './components/KbDefaultsCard';
 import { LocalFilesDropZone } from './components/LocalFilesDropZone';
+import { ProfilesBar } from './components/ProfilesBar';
 import { ReviewPanel } from './components/ReviewPanel';
 import { ProgressPanel } from './components/ProgressPanel';
 import { Stepper } from './components/Stepper';
 import { EnvironmentPicker } from './components/EnvironmentPicker';
 import { processFile } from './processing/pipeline';
+import { buildReportWorkbook } from './reporting/report';
 import { getService } from './services';
 import { findPii } from './services/piiScan';
 import { heroGradient } from './theme';
-import type { KbConfig, ProcessedArticle, LogEntry, ReportResult, PowerPlatformEnvironment, KbUser, SourceFile } from './types';
+import type { KbConfig, ProcessedArticle, LogEntry, ReportResult, PowerPlatformEnvironment, KbUser, SavedScanProfile, SourceFile } from './types';
 
 const useStyles = makeStyles({
   shell: {
@@ -122,6 +124,7 @@ const useStyles = makeStyles({
 });
 
 type Stage = 'config' | 'review' | 'progress';
+type EmailStatus = { kind: 'success' | 'error'; message: string } | undefined;
 
 export function App() {
   const s = useStyles();
@@ -141,6 +144,9 @@ export function App() {
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | undefined>();
   const [articles, setArticles] = useState<ProcessedArticle[]>([]);
+  const [profiles, setProfiles] = useState<SavedScanProfile[]>([]);
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>();
 
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(0);
@@ -149,6 +155,8 @@ export function App() {
   const [reportSaving, setReportSaving] = useState(false);
   const [reportResult, setReportResult] = useState<ReportResult | undefined>();
   const [reportError, setReportError] = useState<string | undefined>();
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<EmailStatus>();
   const [environment, setEnvironment] = useState<PowerPlatformEnvironment | undefined>();
   const [currentUser, setCurrentUser] = useState<KbUser | undefined>();
 
@@ -161,11 +169,28 @@ export function App() {
   }, [svc]);
 
   useEffect(() => {
+    void refreshProfiles();
+  }, [svc]);
+
+  useEffect(() => {
     if (!config.blockPiiOnLoad) {
       return;
     }
     setArticles(previous => previous.map(article => article.findings.length > 0 ? { ...article, selected: false } : article));
   }, [config.blockPiiOnLoad]);
+
+  async function refreshProfiles() {
+    setProfilesLoading(true);
+    try {
+      setProfiles(await svc.listProfiles());
+    } finally {
+      setProfilesLoading(false);
+    }
+  }
+
+  function updateConfig(next: KbConfig) {
+    setConfig(next);
+  }
 
   function mkLog(fileName: string, action: LogEntry['action'], status: LogEntry['status'], message: string, sourcePath?: string, knowledgeArticleId?: string): LogEntry {
     return {
@@ -198,6 +223,24 @@ export function App() {
     }
   }
 
+  async function handleEmailReport(to: string[], subject: string, html: string) {
+    setEmailSending(true);
+    setEmailStatus(undefined);
+    try {
+      if (!svc.emailReport) {
+        throw new Error('Email report is not wired for this service.');
+      }
+      const attachment = await buildReportWorkbook(config, log);
+      await svc.emailReport(to, subject, html, attachment);
+      setEmailStatus({ kind: 'success', message: `Sent ${attachment.fileName} to ${to.join(', ')}.` });
+    } catch (error: unknown) {
+      setEmailStatus({ kind: 'error', message: String(error instanceof Error ? error.message : error) });
+      throw error;
+    } finally {
+      setEmailSending(false);
+    }
+  }
+
   async function buildProcessedArticle(file: SourceFile, buffer: ArrayBuffer): Promise<ProcessedArticle> {
     const processed = await processFile(file, buffer, uploadImage);
     const findings = findPii(`${processed.title}\n${processed.html}`);
@@ -214,6 +257,7 @@ export function App() {
     setLog([]);
     setReportResult(undefined);
     setReportError(undefined);
+    setEmailStatus(undefined);
     try {
       const files = await svc.listFiles(config);
       const supported = files.filter(file => file.kind !== 'unsupported');
@@ -309,6 +353,7 @@ export function App() {
     setErrors(0);
     setReportResult(undefined);
     setReportError(undefined);
+    setEmailStatus(undefined);
     const targets = articles.filter(article => article.selected && article.loadStatus !== 'success' && (!config.blockPiiOnLoad || article.findings.length === 0));
     let completed = 0;
     let failureCount = 0;
@@ -371,6 +416,43 @@ export function App() {
 
     const combined = [...newEntries.slice().reverse(), ...log];
     handleSaveReport(combined);
+  }
+
+  async function handleApplyProfile(profile: SavedScanProfile) {
+    updateConfig({ ...profile.config });
+    setSelectedProfileId(profile.id);
+    if (!profile.environmentId) {
+      return;
+    }
+    try {
+      const environments = await svc.listEnvironments();
+      const match = environments.find(environmentOption => environmentOption.id === profile.environmentId);
+      if (match) {
+        setEnvironment(await svc.checkKnowledgebase(match));
+      }
+    } catch {
+      // Leave the current environment unchanged if profile environment resolution fails.
+    }
+  }
+
+  async function handleSaveProfile(name: string) {
+    const profile: SavedScanProfile = {
+      id: `profile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      config: { ...config },
+      environmentId: environment?.id,
+    };
+    const saved = await svc.saveProfile(profile);
+    await refreshProfiles();
+    setSelectedProfileId(saved.id);
+  }
+
+  async function handleDeleteProfile(id: string) {
+    await svc.deleteProfile(id);
+    await refreshProfiles();
+    if (selectedProfileId === id) {
+      setSelectedProfileId(undefined);
+    }
   }
 
   return (
@@ -456,8 +538,16 @@ export function App() {
 
         {stage === 'config' && (
           <>
-            <ConfigPanel config={config} onChange={setConfig} onScan={handleScan} scanning={scanning} error={scanError} />
-            <KbDefaultsCard service={svc} config={config} onChange={setConfig} />
+            <ProfilesBar
+              profiles={profiles}
+              selectedProfileId={selectedProfileId}
+              loading={profilesLoading}
+              onApply={profile => { void handleApplyProfile(profile); }}
+              onSave={handleSaveProfile}
+              onDelete={handleDeleteProfile}
+            />
+            <ConfigPanel config={config} onChange={updateConfig} onScan={handleScan} scanning={scanning} error={scanError} />
+            <KbDefaultsCard service={svc} config={config} onChange={updateConfig} />
             <Text size={300} weight="semibold" style={{ marginTop: tokens.spacingVerticalL }}>
               …or upload local files
             </Text>
@@ -493,6 +583,10 @@ export function App() {
             reportSaving={reportSaving}
             reportResult={reportResult}
             reportError={reportError}
+            canEmailReport={!!svc.emailReport}
+            emailSending={emailSending}
+            emailStatus={emailStatus}
+            onEmailReport={handleEmailReport}
           />
         )}
       </main>

@@ -1,5 +1,5 @@
 import type { KbLoaderService } from './KbLoaderService';
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch, PowerPlatformEnvironment, KbLanguage, KbSubject, KbUser } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch, PowerPlatformEnvironment, KbLanguage, KbSubject, KbUser, SavedScanProfile } from '../types';
 import { buildReportWorkbook, downloadBlob } from '../reporting/report';
 import { buildMockSuggestion } from './copilotSuggest';
 import { scoreOverlaps } from './overlapDetect';
@@ -125,6 +125,25 @@ export class MockKbLoaderService implements KbLoaderService {
     return `data:${contentType};base64,${arrayBufferToBase64(bytes)}`;
   }
 
+  async listProfiles(): Promise<SavedScanProfile[]> {
+    await delay(50);
+    return readProfiles();
+  }
+
+  async saveProfile(profile: SavedScanProfile): Promise<SavedScanProfile> {
+    await delay(80);
+    const next = { ...profile, name: profile.name.trim() };
+    const profiles = readProfiles().filter(existing => existing.id !== next.id);
+    profiles.push(next);
+    writeProfiles(profiles);
+    return next;
+  }
+
+  async deleteProfile(id: string): Promise<void> {
+    await delay(50);
+    writeProfiles(readProfiles().filter(profile => profile.id !== id));
+  }
+
   async createKnowledgeArticle(article: ProcessedArticle): Promise<{ id: string; url?: string }> {
     await delay(500);
     if (article.title.toLowerCase().includes('fail')) throw new Error('Simulated failure');
@@ -157,6 +176,11 @@ export class MockKbLoaderService implements KbLoaderService {
     const { buffer, fileName } = await buildReportWorkbook(config, log);
     downloadBlob(buffer, fileName);
     return { fileName, location: 'browser download', downloaded: true };
+  }
+
+  async emailReport(to: string[], subject: string, html: string, attachment: { fileName: string; buffer: ArrayBuffer }): Promise<void> {
+    await delay(120);
+    console.log('Mock emailReport', { to, subject, html, attachment: { fileName: attachment.fileName, bytes: attachment.buffer.byteLength } });
   }
 
   async suggestEdits(article: ProcessedArticle): Promise<ArticleSuggestion> {
@@ -288,3 +312,28 @@ function arrayBufferToBase64(bytes: ArrayBuffer): string {
   }
   return btoa(binary);
 }
+
+function readProfiles(): SavedScanProfile[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(PROFILES_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw) as SavedScanProfile[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeProfiles(profiles: SavedScanProfile[]) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+}
+
+const PROFILES_KEY = 'kbloader.profiles';

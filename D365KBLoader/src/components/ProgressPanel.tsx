@@ -1,11 +1,13 @@
+import { useMemo, useState } from 'react';
 import {
   Card, Text, ProgressBar, makeStyles, tokens,
   Table, TableHeader, TableRow, TableHeaderCell, TableBody, TableCell, Badge, Button, Divider, Spinner,
-  MessageBar, MessageBarBody, MessageBarTitle, MessageBarActions
+  MessageBar, MessageBarBody, MessageBarTitle, MessageBarActions,
+  Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Input, Textarea,
 } from '@fluentui/react-components';
 import {
   DocumentTable20Filled, DocumentBulletListMultiple24Filled,
-  CheckmarkCircle24Filled, DismissCircle24Filled, History24Regular
+  CheckmarkCircle24Filled, DismissCircle24Filled, History24Regular, Mail20Regular,
 } from '@fluentui/react-icons';
 import type { LogEntry, ReportResult } from '../types';
 
@@ -26,6 +28,7 @@ const useStyles = makeStyles({
     alignItems: 'center',
     gap: tokens.spacingHorizontalM,
     padding: `${tokens.spacingVerticalL} ${tokens.spacingHorizontalXL}`,
+    flexWrap: 'wrap',
   },
   headerText: { display: 'flex', flexDirection: 'column', flex: 1 },
   title: {
@@ -51,7 +54,18 @@ const useStyles = makeStyles({
     gap: tokens.spacingHorizontalM,
     padding: tokens.spacingHorizontalL,
     borderRadius: tokens.borderRadiusLarge,
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    borderTopWidth: '1px',
+    borderRightWidth: '1px',
+    borderBottomWidth: '1px',
+    borderLeftWidth: '1px',
+    borderTopStyle: 'solid',
+    borderRightStyle: 'solid',
+    borderBottomStyle: 'solid',
+    borderLeftStyle: 'solid',
+    borderTopColor: tokens.colorNeutralStroke2,
+    borderRightColor: tokens.colorNeutralStroke2,
+    borderBottomColor: tokens.colorNeutralStroke2,
+    borderLeftColor: tokens.colorNeutralStroke2,
     backgroundColor: tokens.colorNeutralBackground1,
   },
   statIcon: {
@@ -95,7 +109,17 @@ const useStyles = makeStyles({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  actionRow: {
+    display: 'flex',
+    gap: tokens.spacingHorizontalS,
+    flexWrap: 'wrap',
+  },
 });
+
+interface EmailStatus {
+  kind: 'success' | 'error';
+  message: string;
+}
 
 export interface ProgressPanelProps {
   done: number;
@@ -106,15 +130,49 @@ export interface ProgressPanelProps {
   reportSaving: boolean;
   reportResult?: ReportResult;
   reportError?: string;
+  canEmailReport?: boolean;
+  emailSending?: boolean;
+  emailStatus?: EmailStatus;
+  onEmailReport?: (to: string[], subject: string, html: string) => Promise<void>;
 }
 
 export function ProgressPanel({
   done, total, errors, log,
   onSaveReport, reportSaving, reportResult, reportError,
+  canEmailReport, emailSending = false, emailStatus, onEmailReport,
 }: ProgressPanelProps) {
   const s = useStyles();
   const pct = total === 0 ? 0 : done / total;
   const successes = Math.max(0, done - errors);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [to, setTo] = useState('');
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+
+  const defaultSubject = useMemo(
+    () => `KB Loader Run Report — ${new Date().toLocaleDateString()}`,
+    [],
+  );
+  const defaultMessage = useMemo(
+    () => `<p>The KB Loader run has completed.</p><ul><li><strong>Total selected:</strong> ${total}</li><li><strong>Completed:</strong> ${done}</li><li><strong>Loaded successfully:</strong> ${successes}</li><li><strong>Errors:</strong> ${errors}</li></ul><p>${reportResult ? `Latest report: <strong>${reportResult.fileName}</strong>.</p>` : 'The attached workbook contains the full activity log.</p>'}`,
+    [done, errors, reportResult, successes, total],
+  );
+
+  function openEmailDialog() {
+    setSubject(defaultSubject);
+    setMessage(defaultMessage);
+    setEmailOpen(true);
+  }
+
+  async function sendEmail() {
+    if (!onEmailReport) {
+      return;
+    }
+    const recipients = to.split(',').map(value => value.trim()).filter(Boolean);
+    await onEmailReport(recipients, subject.trim(), message);
+    setEmailOpen(false);
+    setTo('');
+  }
 
   return (
     <div className={s.wrap}>
@@ -172,20 +230,38 @@ export function ProgressPanel({
               {log.length} entries · auto-saved as an Excel report after each load
             </span>
           </div>
-          <Button
-            appearance="primary"
-            icon={reportSaving ? <Spinner size="tiny" /> : <DocumentTable20Filled />}
-            onClick={onSaveReport}
-            disabled={reportSaving || log.length === 0}
-          >
-            {reportSaving ? 'Saving…' : 'Save Excel report'}
-          </Button>
+          <div className={s.actionRow}>
+            <Button
+              appearance="primary"
+              icon={reportSaving ? <Spinner size="tiny" /> : <DocumentTable20Filled />}
+              onClick={onSaveReport}
+              disabled={reportSaving || log.length === 0}
+            >
+              {reportSaving ? 'Saving…' : 'Save Excel report'}
+            </Button>
+            <Button
+              appearance="secondary"
+              icon={emailSending ? <Spinner size="tiny" /> : <Mail20Regular />}
+              onClick={openEmailDialog}
+              disabled={!canEmailReport || log.length === 0 || emailSending}
+            >
+              {emailSending ? 'Sending…' : 'Email report…'}
+            </Button>
+          </div>
         </div>
         {reportResult && (
           <MessageBar intent="success" style={{ margin: `0 ${tokens.spacingHorizontalXL} ${tokens.spacingVerticalM}` }}>
             <MessageBarBody>
               <MessageBarTitle>Report saved</MessageBarTitle>
               <code>{reportResult.fileName}</code> {reportResult.downloaded ? 'downloaded to your browser' : `→ ${reportResult.location}`}
+            </MessageBarBody>
+          </MessageBar>
+        )}
+        {emailStatus && (
+          <MessageBar intent={emailStatus.kind === 'success' ? 'success' : 'error'} style={{ margin: `0 ${tokens.spacingHorizontalXL} ${tokens.spacingVerticalM}` }}>
+            <MessageBarBody>
+              <MessageBarTitle>{emailStatus.kind === 'success' ? 'Email sent' : 'Could not send email'}</MessageBarTitle>
+              {emailStatus.message}
             </MessageBarBody>
           </MessageBar>
         )}
@@ -212,21 +288,21 @@ export function ProgressPanel({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {log.map((l, i) => (
-              <TableRow key={l.id ?? i}>
-                <TableCell>{new Date(l.timestamp).toLocaleString()}</TableCell>
-                <TableCell>{l.fileName}</TableCell>
-                <TableCell><Text style={{ textTransform: 'capitalize' }}>{l.action}</Text></TableCell>
+            {log.map((entry, index) => (
+              <TableRow key={entry.id ?? index}>
+                <TableCell>{new Date(entry.timestamp).toLocaleString()}</TableCell>
+                <TableCell>{entry.fileName}</TableCell>
+                <TableCell><Text style={{ textTransform: 'capitalize' }}>{entry.action}</Text></TableCell>
                 <TableCell>
                   <Badge
                     appearance="tint"
-                    color={l.status === 'success' ? 'success' : l.status === 'error' ? 'danger' : 'informative'}
+                    color={entry.status === 'success' ? 'success' : entry.status === 'error' ? 'danger' : 'informative'}
                     size="small"
                   >
-                    {l.status}
+                    {entry.status}
                   </Badge>
                 </TableCell>
-                <TableCell>{l.message}</TableCell>
+                <TableCell>{entry.message}</TableCell>
               </TableRow>
             ))}
             {log.length === 0 && (
@@ -241,6 +317,31 @@ export function ProgressPanel({
           </TableBody>
         </Table>
       </Card>
+
+      <Dialog open={emailOpen} onOpenChange={(_, data) => { if (!data.open) setEmailOpen(false); }}>
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>Email the run report</DialogTitle>
+            <DialogContent>
+              <Field label="To" hint="Comma-separated email addresses" required>
+                <Input value={to} onChange={(_, data) => setTo(data.value)} placeholder="owner@contoso.com, kb-team@contoso.com" />
+              </Field>
+              <Field label="Subject" required>
+                <Input value={subject} onChange={(_, data) => setSubject(data.value)} />
+              </Field>
+              <Field label="Message (HTML)" required>
+                <Textarea value={message} onChange={(_, data) => setMessage(data.value)} resize="vertical" rows={10} />
+              </Field>
+            </DialogContent>
+            <DialogActions>
+              <Button appearance="secondary" onClick={() => setEmailOpen(false)} disabled={emailSending}>Cancel</Button>
+              <Button appearance="primary" onClick={sendEmail} disabled={emailSending || !to.trim() || !subject.trim() || !message.trim()}>
+                {emailSending ? 'Sending…' : 'Send'}
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Field, Input, Button, Card, Text, makeStyles, tokens, Spinner, MessageBar, MessageBarBody
 } from '@fluentui/react-components';
@@ -82,6 +82,11 @@ export function ConfigPanel({ config, onChange, onScan, scanning, error }: Confi
   const [local, setLocal] = useState<KbConfig>(config);
   const [siteOpen, setSiteOpen] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
+
+  useEffect(() => {
+    setLocal(config);
+  }, [config]);
+
   const update = (patch: Partial<KbConfig>) => {
     const next = { ...local, ...patch };
     setLocal(next);
