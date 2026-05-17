@@ -201,6 +201,23 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
     return new TextEncoder().encode(String(res)).buffer;
   }
 
+  async uploadImage(name: string, bytes: ArrayBuffer, contentType: string): Promise<string> {
+    // TODO(real connector): Upload DOCX-extracted images into an `images/`
+    // sub-folder beneath the selected SharePoint source folder so the converted
+    // article can reference public URLs instead of inlined data URIs.
+    //
+    // Expected SharePoint Online connector flow:
+    //   1) Ensure `${config.folderPath}/images` exists (Create new folder / EnsureFolderPath).
+    //   2) Call CreateFile with dataset=siteUrl, folderPath=`<source>/images`,
+    //      name, and body=bytes.
+    //   3) Return the resulting server-relative / web URL from the connector
+    //      response so mammoth can swap the inline image for the hosted URL.
+    //
+    // Until the generated client is wired up, fall back to the existing data URL
+    // behavior so real-mode scans still produce usable previews.
+    return `data:${contentType};base64,${arrayBufferToBase64(bytes)}`;
+  }
+
   async createKnowledgeArticle(article: ProcessedArticle, config?: KbConfig): Promise<{ id: string; url?: string }> {
     const dv = await loadDataverseClient();
     const langId = article.languageId ?? config?.defaultLanguageId;
@@ -301,6 +318,15 @@ async function loadEnvBaseUrl(): Promise<string | undefined> {
   // metadata Power Platform injects at runtime. Replace this with whatever
   // value the generated client exposes (e.g. dv.config.environmentUrl).
   return undefined;
+}
+
+function arrayBufferToBase64(bytes: ArrayBuffer): string {
+  const array = new Uint8Array(bytes);
+  let binary = '';
+  for (const byte of array) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 // Minimal LCID lookup for the languages most D365 KB orgs use. Extend as needed.

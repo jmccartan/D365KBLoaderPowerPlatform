@@ -2,13 +2,15 @@ import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
 import type { SourceFile, ProcessedArticle } from '../types';
 
-const SANITIZE_OPTS: sanitizeHtml.IOptions = {
+export type UploadImageHandler = (name: string, bytes: ArrayBuffer, contentType: string) => Promise<string>;
+
+export const SANITIZE_OPTS: sanitizeHtml.IOptions = {
   allowedTags: [
-    'h1','h2','h3','h4','h5','h6','p','br','hr',
-    'ul','ol','li','blockquote','pre','code',
-    'strong','em','b','i','u','s','sub','sup',
-    'a','img','table','thead','tbody','tr','th','td',
-    'div','span'
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'hr',
+    'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
+    'strong', 'em', 'b', 'i', 'u', 's', 'sub', 'sup',
+    'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'div', 'span'
   ],
   allowedAttributes: {
     a: ['href', 'title', 'target', 'rel'],
@@ -17,12 +19,16 @@ const SANITIZE_OPTS: sanitizeHtml.IOptions = {
   },
   allowedSchemes: ['http', 'https', 'mailto', 'data'],
   transformTags: {
-    a: (tag, attribs) => ({
+    a: (_tag, attribs) => ({
       tagName: 'a',
       attribs: { ...attribs, target: '_blank', rel: 'noopener noreferrer' }
     })
   }
 };
+
+export function sanitizeArticleHtml(html: string): string {
+  return sanitizeHtml(html, SANITIZE_OPTS).trim();
+}
 
 function deriveTitle(html: string, fallback: string): string {
   const h1 = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html);
@@ -43,9 +49,7 @@ function extractBody(html: string): string {
 
 async function pdfToHtml(buf: ArrayBuffer): Promise<{ html: string; warnings: string[] }> {
   const warnings: string[] = [];
-  // Lazy import so the (~1MB) PDF worker isn't pulled into the bundle entry point.
   const pdfjs = await import('pdfjs-dist');
-  // Use a CDN-hosted worker to avoid worker bundling issues in Code App hosts.
   // @ts-ignore — pdfjs-dist exposes a mutable GlobalWorkerOptions
   pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
   const doc = await pdfjs.getDocument({ data: buf }).promise;
@@ -56,13 +60,13 @@ async function pdfToHtml(buf: ArrayBuffer): Promise<{ html: string; warnings: st
     const lines: string[] = [];
     let current = '';
     let lastY: number | undefined;
-    for (const item of text.items as any[]) {
-      const y = item.transform?.[5];
-      if (lastY !== undefined && Math.abs((lastY ?? y) - y) > 2) {
+    for (const item of text.items as Array<{ str?: string; hasEOL?: boolean; transform?: number[] }>) {
+      const y = item.transform?.[5] ?? 0;
+      if (lastY !== undefined && Math.abs(lastY - y) > 2) {
         if (current.trim()) lines.push(current.trim());
         current = '';
       }
-      current += item.str + (item.hasEOL ? ' ' : '');
+      current += (item.str ?? '') + (item.hasEOL ? ' ' : '');
       lastY = y;
     }
     if (current.trim()) lines.push(current.trim());
@@ -70,7 +74,7 @@ async function pdfToHtml(buf: ArrayBuffer): Promise<{ html: string; warnings: st
       warnings.push(`Page ${p} had no extractable text (image-only?)`);
       continue;
     }
-    paragraphs.push(...lines.map(l => `<p>${escape(l)}</p>`));
+    paragraphs.push(...lines.map(line => `<p>${escape(line)}</p>`));
     if (p < doc.numPages) paragraphs.push('<hr />');
   }
   return { html: paragraphs.join('\n'), warnings };
@@ -80,17 +84,31 @@ function escape(s: string): string {
   return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }
 
-export async function processFile(file: SourceFile, content: ArrayBuffer): Promise<ProcessedArticle> {
+export async function processFile(file: SourceFile, content: ArrayBuffer, uploadImage?: UploadImageHandler): Promise<ProcessedArticle> {
   const warnings: string[] = [];
   let rawHtml = '';
 
   if (file.kind === 'docx') {
+    let imageCounter = 0;
     const result = await mammoth.convertToHtml(
       { arrayBuffer: content },
-      { styleMap: ["p[style-name='Title'] => h1:fresh", "p[style-name='Heading 1'] => h2:fresh"] }
+      {
+        styleMap: ["p[style-name='Title'] => h1:fresh", "p[style-name='Heading 1'] => h2:fresh"],
+        convertImage: mammoth.images.imgElement(async image => {
+          const contentType = image.contentType || 'image/png';
+          const bytes = await image.readAsArrayBuffer();
+          const baseName = file.name.replace(/\.[^.]+$/, '');
+          const ext = extensionForContentType(contentType);
+          const imageName = `${baseName}-image-${++imageCounter}.${ext}`;
+          const src = uploadImage
+            ? await uploadImage(imageName, bytes, contentType)
+            : `data:${contentType};base64,${await image.readAsBase64String()}`;
+          return { src };
+        })
+      }
     );
     rawHtml = result.value;
-    for (const m of result.messages) warnings.push(`${m.type}: ${m.message}`);
+    for (const message of result.messages) warnings.push(`${message.type}: ${message.message}`);
   } else if (file.kind === 'html') {
     rawHtml = new TextDecoder('utf-8').decode(content);
   } else if (file.kind === 'pdf') {
@@ -105,7 +123,7 @@ export async function processFile(file: SourceFile, content: ArrayBuffer): Promi
   }
 
   const bodyHtml = extractBody(rawHtml);
-  const sanitized = sanitizeHtml(bodyHtml, SANITIZE_OPTS).trim();
+  const sanitized = sanitizeArticleHtml(bodyHtml);
   const title = deriveTitle(rawHtml, file.name.replace(/\.[^.]+$/, ''));
 
   return {
@@ -115,9 +133,25 @@ export async function processFile(file: SourceFile, content: ArrayBuffer): Promi
     html: sanitized,
     rawHtml,
     warnings,
+    findings: [],
     selected: true,
     loadStatus: 'pending'
   };
+}
+
+function extensionForContentType(contentType: string): string {
+  switch (contentType.toLowerCase()) {
+    case 'image/jpeg':
+      return 'jpg';
+    case 'image/gif':
+      return 'gif';
+    case 'image/svg+xml':
+      return 'svg';
+    case 'image/webp':
+      return 'webp';
+    default:
+      return 'png';
+  }
 }
 
 export function classify(name: string): SourceFile['kind'] {
@@ -146,14 +180,25 @@ function mdToHtml(src: string): string {
     const line = raw.trimEnd();
     if (line.startsWith('```')) {
       flushPara();
-      if (inCode) { out.push('</code></pre>'); inCode = false; }
-      else { out.push('<pre><code>'); inCode = true; }
+      if (inCode) {
+        out.push('</code></pre>');
+        inCode = false;
+      } else {
+        out.push('<pre><code>');
+        inCode = true;
+      }
       continue;
     }
-    if (inCode) { out.push(escape(raw) + '\n'); continue; }
+    if (inCode) {
+      out.push(escape(raw) + '\n');
+      continue;
+    }
     if (/^#{1,6}\s/.test(line)) {
       flushPara();
-      if (inList) { out.push('</ul>'); inList = false; }
+      if (inList) {
+        out.push('</ul>');
+        inList = false;
+      }
       const n = line.match(/^#+/)![0].length;
       const text = line.replace(/^#+\s*/, '');
       out.push(`<h${n}>${inline(text)}</h${n}>`);
@@ -161,13 +206,19 @@ function mdToHtml(src: string): string {
     }
     if (/^[-*+]\s/.test(line)) {
       flushPara();
-      if (!inList) { out.push('<ul>'); inList = true; }
+      if (!inList) {
+        out.push('<ul>');
+        inList = true;
+      }
       out.push('<li>' + inline(line.replace(/^[-*+]\s+/, '')) + '</li>');
       continue;
     }
     if (line.trim() === '') {
       flushPara();
-      if (inList) { out.push('</ul>'); inList = false; }
+      if (inList) {
+        out.push('</ul>');
+        inList = false;
+      }
       continue;
     }
     para.push(line);

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  makeStyles, tokens, Text, MessageBar, MessageBarBody, MessageBarTitle
+  makeStyles, tokens, Text, MessageBar, MessageBarBody, MessageBarTitle,
 } from '@fluentui/react-components';
 import { BookDatabase24Filled, Sparkle20Filled } from '@fluentui/react-icons';
 import { ConfigPanel } from './components/ConfigPanel';
@@ -12,6 +12,7 @@ import { Stepper } from './components/Stepper';
 import { EnvironmentPicker } from './components/EnvironmentPicker';
 import { processFile } from './processing/pipeline';
 import { getService } from './services';
+import { findPii } from './services/piiScan';
 import { heroGradient } from './theme';
 import type { KbConfig, ProcessedArticle, LogEntry, ReportResult, PowerPlatformEnvironment, KbUser, SourceFile } from './types';
 
@@ -90,11 +91,24 @@ const useStyles = makeStyles({
     color: '#FFFFFF',
     fontSize: tokens.fontSizeBase200,
     fontWeight: tokens.fontWeightSemibold,
-    border: '1px solid rgba(255,255,255,0.3)',
+    borderTopWidth: '1px',
+    borderRightWidth: '1px',
+    borderBottomWidth: '1px',
+    borderLeftWidth: '1px',
+    borderTopStyle: 'solid',
+    borderRightStyle: 'solid',
+    borderBottomStyle: 'solid',
+    borderLeftStyle: 'solid',
+    borderTopColor: 'rgba(255,255,255,0.3)',
+    borderRightColor: 'rgba(255,255,255,0.3)',
+    borderBottomColor: 'rgba(255,255,255,0.3)',
+    borderLeftColor: 'rgba(255,255,255,0.3)',
   },
   stepperBar: {
     backgroundColor: tokens.colorNeutralBackground1,
-    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
+    borderBottomWidth: '1px',
+    borderBottomStyle: 'solid',
+    borderBottomColor: tokens.colorNeutralStroke2,
     padding: `${tokens.spacingVerticalM} ${tokens.spacingHorizontalXXL}`,
     boxShadow: '0 1px 2px rgba(15, 60, 110, 0.04)',
   },
@@ -120,6 +134,7 @@ export function App() {
     duplicateAction: 'skip',
     recursive: false,
     incremental: false,
+    blockPiiOnLoad: false,
   });
 
   const [stage, setStage] = useState<Stage>('config');
@@ -139,22 +154,35 @@ export function App() {
 
   const isMock = import.meta.env?.VITE_USE_REAL_CONNECTORS !== 'true';
   const envReady = !!environment && environment.knowledgebaseStatus === 'present';
+  const uploadImage = svc.uploadImage ? svc.uploadImage.bind(svc) : undefined;
 
   useEffect(() => {
     svc.getCurrentUser().then(setCurrentUser).catch(() => undefined);
   }, [svc]);
 
+  useEffect(() => {
+    if (!config.blockPiiOnLoad) {
+      return;
+    }
+    setArticles(previous => previous.map(article => article.findings.length > 0 ? { ...article, selected: false } : article));
+  }, [config.blockPiiOnLoad]);
+
   function mkLog(fileName: string, action: LogEntry['action'], status: LogEntry['status'], message: string, sourcePath?: string, knowledgeArticleId?: string): LogEntry {
     return {
       timestamp: new Date().toISOString(),
-      fileName, action, status, message, sourcePath, knowledgeArticleId,
+      fileName,
+      action,
+      status,
+      message,
+      sourcePath,
+      knowledgeArticleId,
       userDisplayName: currentUser?.displayName,
       userEmail: currentUser?.email,
     };
   }
 
   function appendLog(entry: LogEntry) {
-    setLog(prev => [{ ...entry, id: String(prev.length + 1) }, ...prev]);
+    setLog(previous => [{ ...entry, id: String(previous.length + 1) }, ...previous]);
   }
 
   async function handleSaveReport(currentLog?: LogEntry[]) {
@@ -163,11 +191,21 @@ export function App() {
     try {
       const result = await svc.writeReport(config, currentLog ?? log);
       setReportResult(result);
-    } catch (e: any) {
-      setReportError(String(e?.message ?? e));
+    } catch (error: unknown) {
+      setReportError(String(error instanceof Error ? error.message : error));
     } finally {
       setReportSaving(false);
     }
+  }
+
+  async function buildProcessedArticle(file: SourceFile, buffer: ArrayBuffer): Promise<ProcessedArticle> {
+    const processed = await processFile(file, buffer, uploadImage);
+    const findings = findPii(`${processed.title}\n${processed.html}`);
+    return {
+      ...processed,
+      findings,
+      selected: findings.length > 0 && config.blockPiiOnLoad ? false : processed.selected,
+    };
   }
 
   async function handleScan() {
@@ -178,44 +216,58 @@ export function App() {
     setReportError(undefined);
     try {
       const files = await svc.listFiles(config);
-      const supported = files.filter(f => f.kind !== 'unsupported');
-      const skipped = files.filter(f => f.kind === 'unsupported');
+      const supported = files.filter(file => file.kind !== 'unsupported');
+      const skipped = files.filter(file => file.kind === 'unsupported');
 
-      // Incremental mode: read the prior run report(s) from the folder
-      // and skip files we've already loaded successfully.
-      let alreadyLoaded: Set<string> = new Set();
+      let alreadyLoaded = new Set<string>();
       if (config.incremental && svc.readPriorReports) {
-        try { alreadyLoaded = await svc.readPriorReports(config); } catch { /* ignore */ }
+        try {
+          alreadyLoaded = await svc.readPriorReports(config);
+        } catch {
+          alreadyLoaded = new Set<string>();
+        }
       }
 
-      const toProcess = supported.filter(f => !alreadyLoaded.has(f.path));
+      const toProcess = supported.filter(file => !alreadyLoaded.has(file.path));
       const incSkipped = supported.length - toProcess.length;
       if (incSkipped > 0) {
         appendLog(mkLog('(incremental)', 'skip', 'info', `Skipped ${incSkipped} files already loaded in a prior run.`));
       }
 
       const processed: ProcessedArticle[] = [];
-      for (const f of toProcess) {
+      for (const file of toProcess) {
         try {
-          const buf = await svc.downloadFile(f);
-          const a = await processFile(f, buf);
-          processed.push(a);
-          appendLog(mkLog(f.name, 'process', 'success', 'Converted to HTML', f.path));
-        } catch (e: any) {
+          const buffer = await svc.downloadFile(file);
+          const article = await buildProcessedArticle(file, buffer);
+          processed.push(article);
+          appendLog(mkLog(file.name, 'process', 'success', 'Converted to HTML', file.path));
+          if (article.findings.length > 0) {
+            appendLog(mkLog(file.name, 'process', 'info', `Sensitive-content scan flagged ${article.findings.map(finding => `${finding.kind} × ${finding.count}`).join(', ')}`, file.path));
+          }
+        } catch (error: unknown) {
+          const message = String(error instanceof Error ? error.message : error);
           processed.push({
-            id: f.id, source: f, title: f.name, html: '', rawHtml: '',
-            warnings: [String(e?.message ?? e)], selected: false, loadStatus: 'error', loadError: String(e?.message ?? e)
+            id: file.id,
+            source: file,
+            title: file.name,
+            html: '',
+            rawHtml: '',
+            warnings: [message],
+            findings: [],
+            selected: false,
+            loadStatus: 'error',
+            loadError: message,
           });
-          appendLog(mkLog(f.name, 'process', 'error', String(e?.message ?? e), f.path));
+          appendLog(mkLog(file.name, 'process', 'error', message, file.path));
         }
       }
-      for (const f of skipped) {
-        appendLog(mkLog(f.name, 'skip', 'info', `Unsupported type`, f.path));
+      for (const file of skipped) {
+        appendLog(mkLog(file.name, 'skip', 'info', 'Unsupported type', file.path));
       }
       setArticles(processed);
       setStage('review');
-    } catch (e: any) {
-      setScanError(String(e?.message ?? e));
+    } catch (error: unknown) {
+      setScanError(String(error instanceof Error ? error.message : error));
     } finally {
       setScanning(false);
     }
@@ -226,18 +278,21 @@ export function App() {
     setScanError(undefined);
     try {
       const processed: ProcessedArticle[] = [...articles];
-      for (const it of items) {
-        if (it.source.kind === 'unsupported') {
-          appendLog(mkLog(it.file.name, 'skip', 'info', 'Unsupported type', it.source.path));
+      for (const item of items) {
+        if (item.source.kind === 'unsupported') {
+          appendLog(mkLog(item.file.name, 'skip', 'info', 'Unsupported type', item.source.path));
           continue;
         }
         try {
-          const buf = await it.file.arrayBuffer();
-          const a = await processFile(it.source, buf);
-          processed.push(a);
-          appendLog(mkLog(it.file.name, 'process', 'success', 'Converted to HTML (local upload)', it.source.path));
-        } catch (e: any) {
-          appendLog(mkLog(it.file.name, 'process', 'error', String(e?.message ?? e), it.source.path));
+          const buffer = await item.file.arrayBuffer();
+          const article = await buildProcessedArticle(item.source, buffer);
+          processed.push(article);
+          appendLog(mkLog(item.file.name, 'process', 'success', 'Converted to HTML (local upload)', item.source.path));
+          if (article.findings.length > 0) {
+            appendLog(mkLog(item.file.name, 'process', 'info', `Sensitive-content scan flagged ${article.findings.map(finding => `${finding.kind} × ${finding.count}`).join(', ')}`, item.source.path));
+          }
+        } catch (error: unknown) {
+          appendLog(mkLog(item.file.name, 'process', 'error', String(error instanceof Error ? error.message : error), item.source.path));
         }
       }
       setArticles(processed);
@@ -250,61 +305,70 @@ export function App() {
   async function handleLoad() {
     setLoading(true);
     setStage('progress');
-    setDone(0); setErrors(0);
+    setDone(0);
+    setErrors(0);
     setReportResult(undefined);
     setReportError(undefined);
-    const targets = articles.filter(a => a.selected && a.loadStatus !== 'success');
-    let d = 0, err = 0;
+    const targets = articles.filter(article => article.selected && article.loadStatus !== 'success' && (!config.blockPiiOnLoad || article.findings.length === 0));
+    let completed = 0;
+    let failureCount = 0;
     const newEntries: LogEntry[] = [];
 
-    for (const a of targets) {
-      setArticles(prev => prev.map(p => p.id === a.id ? { ...p, loadStatus: 'loading', loadError: undefined } : p));
+    for (const article of targets) {
+      setArticles(previous => previous.map(candidate => candidate.id === article.id ? { ...candidate, loadStatus: 'loading', loadError: undefined } : candidate));
       try {
-        // Idempotency: check for an existing article with the same title
         const existing = config.duplicateAction !== 'create-new'
-          ? await svc.findArticleByTitle(a.title)
+          ? await svc.findArticleByTitle(article.title)
           : undefined;
 
         if (existing && config.duplicateAction === 'skip') {
-          setArticles(prev => prev.map(p => p.id === a.id ? {
-            ...p, loadStatus: 'skipped', knowledgeArticleId: existing.id, knowledgeArticleUrl: existing.url,
-          } : p));
-          const entry = mkLog(a.source.name, 'skip', 'info', `Skipped — article "${existing.title}" already exists`, a.source.path, existing.id);
+          setArticles(previous => previous.map(candidate => candidate.id === article.id ? {
+            ...candidate,
+            loadStatus: 'skipped',
+            knowledgeArticleId: existing.id,
+            knowledgeArticleUrl: existing.url,
+          } : candidate));
+          const entry = mkLog(article.source.name, 'skip', 'info', `Skipped — article "${existing.title}" already exists`, article.source.path, existing.id);
           newEntries.push(entry);
           appendLog(entry);
         } else if (existing && config.duplicateAction === 'update-existing') {
-          await svc.updateKnowledgeArticle(existing.id, a);
-          setArticles(prev => prev.map(p => p.id === a.id ? {
-            ...p, loadStatus: 'success', knowledgeArticleId: existing.id, knowledgeArticleUrl: existing.url,
-          } : p));
-          const entry = mkLog(a.source.name, 'update', 'success', `Updated existing knowledgearticle "${existing.title}"`, a.source.path, existing.id);
+          await svc.updateKnowledgeArticle(existing.id, article);
+          setArticles(previous => previous.map(candidate => candidate.id === article.id ? {
+            ...candidate,
+            loadStatus: 'success',
+            knowledgeArticleId: existing.id,
+            knowledgeArticleUrl: existing.url,
+          } : candidate));
+          const entry = mkLog(article.source.name, 'update', 'success', `Updated existing knowledgearticle "${existing.title}"`, article.source.path, existing.id);
           newEntries.push(entry);
           appendLog(entry);
-          d++;
+          completed += 1;
         } else {
-          const result = await svc.createKnowledgeArticle(a, config);
-          setArticles(prev => prev.map(p => p.id === a.id ? {
-            ...p, loadStatus: 'success', knowledgeArticleId: result.id, knowledgeArticleUrl: result.url,
-          } : p));
-          const entry = mkLog(a.source.name, 'load', 'success', `Created knowledgearticle`, a.source.path, result.id);
+          const result = await svc.createKnowledgeArticle(article, config);
+          setArticles(previous => previous.map(candidate => candidate.id === article.id ? {
+            ...candidate,
+            loadStatus: 'success',
+            knowledgeArticleId: result.id,
+            knowledgeArticleUrl: result.url,
+          } : candidate));
+          const entry = mkLog(article.source.name, 'load', 'success', 'Created knowledgearticle', article.source.path, result.id);
           newEntries.push(entry);
           appendLog(entry);
-          d++;
+          completed += 1;
         }
-      } catch (e: any) {
-        const msg = String(e?.message ?? e);
-        setArticles(prev => prev.map(p => p.id === a.id ? { ...p, loadStatus: 'error', loadError: msg } : p));
-        const entry = mkLog(a.source.name, 'load', 'error', msg, a.source.path);
+      } catch (error: unknown) {
+        const message = String(error instanceof Error ? error.message : error);
+        setArticles(previous => previous.map(candidate => candidate.id === article.id ? { ...candidate, loadStatus: 'error', loadError: message } : candidate));
+        const entry = mkLog(article.source.name, 'load', 'error', message, article.source.path);
         newEntries.push(entry);
         appendLog(entry);
-        err++;
+        failureCount += 1;
       }
-      setDone(d + err);
-      setErrors(err);
+      setDone(completed + failureCount);
+      setErrors(failureCount);
     }
     setLoading(false);
 
-    // Auto-save the run report. Combine prior log entries (scan/process) with this run's load entries.
     const combined = [...newEntries.slice().reverse(), ...log];
     handleSaveReport(combined);
   }
@@ -340,7 +404,7 @@ export function App() {
       <div className={s.stepperBar}>
         <Stepper
           active={stage}
-          onSelect={v => setStage(v as Stage)}
+          onSelect={value => setStage(value as Stage)}
           steps={[
             { value: 'config', label: 'Configure' },
             { value: 'review', label: 'Review', count: articles.length, disabled: articles.length === 0 },
@@ -407,6 +471,7 @@ export function App() {
             onLoad={handleLoad}
             loading={loading}
             canLoad={envReady}
+            blockPiiOnLoad={!!config.blockPiiOnLoad}
             disabledReason={
               !environment
                 ? 'Pick a Power Platform environment first.'
@@ -421,7 +486,7 @@ export function App() {
         {stage === 'progress' && (
           <ProgressPanel
             done={done}
-            total={articles.filter(a => a.selected).length}
+            total={articles.filter(article => article.selected).length}
             errors={errors}
             log={log}
             onSaveReport={() => handleSaveReport()}

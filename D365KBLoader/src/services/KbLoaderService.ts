@@ -29,6 +29,8 @@ export interface KbLoaderService {
   listFolders(siteUrl: string, folderPath: string): Promise<FolderItem[]>;
   listFiles(config: KbConfig): Promise<SourceFile[]>;
   downloadFile(file: SourceFile): Promise<ArrayBuffer>;
+  /** Optional hook used during DOCX conversion to externalize inline images. */
+  uploadImage?(name: string, bytes: ArrayBuffer, contentType: string): Promise<string>;
   createKnowledgeArticle(article: ProcessedArticle, config?: KbConfig): Promise<{ id: string; url?: string }>;
   /** Persist a formatted Excel report of the run to the source folder (or download in mock mode). */
   writeReport(config: KbConfig, log: LogEntry[]): Promise<ReportResult>;

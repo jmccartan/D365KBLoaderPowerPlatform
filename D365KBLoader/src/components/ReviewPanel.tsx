@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Card, Text, Button, Checkbox, makeStyles, tokens, mergeClasses,
   Tab, TabList, Input, Textarea, Badge, Tooltip, Spinner, Divider,
@@ -9,8 +9,10 @@ import {
   Warning20Filled, CloudArrowUp20Filled, CheckmarkCircle20Filled, DismissCircle20Filled,
   Sparkle20Filled, BranchCompare20Regular, Open16Regular,
 } from '@fluentui/react-icons';
-import type { ProcessedArticle, ArticleSuggestion, OverlapMatch } from '../types';
+import type { ProcessedArticle, ArticleSuggestion, OverlapMatch, PIIFinding } from '../types';
+import { sanitizeArticleHtml } from '../processing/pipeline';
 import { getService } from '../services';
+import { RichTextEditor } from './RichTextEditor';
 import { SuggestEditsDialog } from './SuggestEditsDialog';
 
 const useStyles = makeStyles({
@@ -68,7 +70,9 @@ const useStyles = makeStyles({
     overflow: 'auto',
     padding: tokens.spacingHorizontalS,
     backgroundColor: tokens.colorNeutralBackground2,
-    borderRight: `1px solid ${tokens.colorNeutralStroke2}`,
+    borderRightWidth: '1px',
+    borderRightStyle: 'solid',
+    borderRightColor: tokens.colorNeutralStroke2,
   },
   row: {
     display: 'flex',
@@ -125,7 +129,18 @@ const useStyles = makeStyles({
     backgroundColor: tokens.colorNeutralBackground1,
   },
   preview: {
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    borderTopWidth: '1px',
+    borderRightWidth: '1px',
+    borderBottomWidth: '1px',
+    borderLeftWidth: '1px',
+    borderTopStyle: 'solid',
+    borderRightStyle: 'solid',
+    borderBottomStyle: 'solid',
+    borderLeftStyle: 'solid',
+    borderTopColor: tokens.colorNeutralStroke2,
+    borderRightColor: tokens.colorNeutralStroke2,
+    borderBottomColor: tokens.colorNeutralStroke2,
+    borderLeftColor: tokens.colorNeutralStroke2,
     borderRadius: tokens.borderRadiusLarge,
     padding: tokens.spacingHorizontalL,
     minHeight: '320px',
@@ -145,7 +160,18 @@ const useStyles = makeStyles({
     display: 'block',
   },
   warningBox: {
-    border: `1px solid ${tokens.colorPaletteYellowBorder1}`,
+    borderTopWidth: '1px',
+    borderRightWidth: '1px',
+    borderBottomWidth: '1px',
+    borderLeftWidth: '1px',
+    borderTopStyle: 'solid',
+    borderRightStyle: 'solid',
+    borderBottomStyle: 'solid',
+    borderLeftStyle: 'solid',
+    borderTopColor: tokens.colorPaletteYellowBorder1,
+    borderRightColor: tokens.colorPaletteYellowBorder1,
+    borderBottomColor: tokens.colorPaletteYellowBorder1,
+    borderLeftColor: tokens.colorPaletteYellowBorder1,
     backgroundColor: tokens.colorPaletteYellowBackground1,
     borderRadius: tokens.borderRadiusMedium,
     padding: tokens.spacingHorizontalM,
@@ -184,40 +210,61 @@ export interface ReviewPanelProps {
   onChange: (articles: ProcessedArticle[]) => void;
   onLoad: () => void;
   loading: boolean;
-  /** Set to false if there is no usable environment yet. */
   canLoad?: boolean;
-  /** Human-readable reason shown in the Load button tooltip when disabled. */
   disabledReason?: string;
+  blockPiiOnLoad?: boolean;
 }
 
-export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = true, disabledReason }: ReviewPanelProps) {
+export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = true, disabledReason, blockPiiOnLoad = false }: ReviewPanelProps) {
   const s = useStyles();
   const svc = useMemo(() => getService(), []);
   const [activeId, setActiveId] = useState<string>(articles[0]?.id ?? '');
   const [tab, setTab] = useState<'preview' | 'raw' | 'edit'>('preview');
-  const active = articles.find(a => a.id === activeId) ?? articles[0];
+  const [editorMode, setEditorMode] = useState<'visual' | 'source'>('visual');
+  const active = articles.find(article => article.id === activeId) ?? articles[0];
+  const [editDraft, setEditDraft] = useState(active?.html ?? '');
 
-  // Copilot suggestion state
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [copilotLoading, setCopilotLoading] = useState(false);
   const [copilotError, setCopilotError] = useState<string | undefined>();
   const [suggestion, setSuggestion] = useState<ArticleSuggestion | undefined>();
 
-  // Overlap-scan state
   const [overlapScanning, setOverlapScanning] = useState(false);
   const [overlapError, setOverlapError] = useState<string | undefined>();
   const [overlapBanner, setOverlapBanner] = useState<string | undefined>();
 
-  const allSelected = articles.length > 0 && articles.every(a => a.selected);
-  const someSelected = articles.some(a => a.selected) && !allSelected;
-  const selectedCount = articles.filter(a => a.selected).length;
+  useEffect(() => {
+    if (!activeId && articles[0]) {
+      setActiveId(articles[0].id);
+    }
+  }, [activeId, articles]);
+
+  useEffect(() => {
+    setEditDraft(active?.html ?? '');
+  }, [active?.id, active?.html]);
+
+  const allSelected = articles.length > 0 && articles.every(article => article.selected || (blockPiiOnLoad && article.findings.length > 0));
+  const someSelected = articles.some(article => article.selected) && !allSelected;
+  const selectedCount = articles.filter(article => article.selected).length;
+  const selectedWithFindings = articles.filter(article => article.selected && article.findings.length > 0).length;
+  const loadTooltip = !canLoad
+    ? (disabledReason ?? 'Select an environment first')
+    : blockPiiOnLoad && selectedWithFindings > 0
+      ? `${selectedWithFindings} selected article${selectedWithFindings === 1 ? '' : 's'} contain possible PII. Clean them up or leave blocking mode off to continue.`
+      : selectedWithFindings > 0
+        ? `${selectedWithFindings} selected article${selectedWithFindings === 1 ? '' : 's'} contain possible PII. Loading is allowed, but review the findings first.`
+        : undefined;
 
   const update = (id: string, patch: Partial<ProcessedArticle>) => {
-    onChange(articles.map(a => a.id === id ? { ...a, ...patch } : a));
+    onChange(articles.map(article => article.id === id ? { ...article, ...patch } : article));
   };
+
   const toggleAll = () => {
     const next = !allSelected;
-    onChange(articles.map(a => ({ ...a, selected: next })));
+    onChange(articles.map(article => ({
+      ...article,
+      selected: next && (!blockPiiOnLoad || article.findings.length === 0),
+    })));
   };
 
   async function requestSuggestions(target: ProcessedArticle) {
@@ -228,20 +275,31 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
     try {
       const result = await svc.suggestEdits(target);
       setSuggestion(result);
-    } catch (e: any) {
-      setCopilotError(String(e?.message ?? e));
+    } catch (error: unknown) {
+      setCopilotError(String(error instanceof Error ? error.message : error));
     } finally {
       setCopilotLoading(false);
     }
   }
 
-  function acceptSuggestion(target: ProcessedArticle, sugg: ArticleSuggestion) {
+  function acceptSuggestion(target: ProcessedArticle, nextSuggestion: ArticleSuggestion) {
+    const cleaned = sanitizeArticleHtml(nextSuggestion.html);
     update(target.id, {
-      html: sugg.html,
-      ...(sugg.title ? { title: sugg.title } : {}),
+      html: cleaned,
+      ...(nextSuggestion.title ? { title: nextSuggestion.title } : {}),
     });
+    setEditDraft(cleaned);
     setCopilotOpen(false);
     setSuggestion(undefined);
+  }
+
+  function commitEditHtml() {
+    if (!active) {
+      return;
+    }
+    const cleaned = sanitizeArticleHtml(editDraft);
+    setEditDraft(cleaned);
+    update(active.id, { html: cleaned });
   }
 
   async function scanForOverlap() {
@@ -252,18 +310,17 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
       const map = await svc.findOverlaps(articles);
       let autoDeselected = 0;
       let flagged = 0;
-      const next = articles.map(a => {
-        const overlaps = map[a.id] ?? [];
-        if (overlaps.length === 0) return { ...a, overlaps: [] };
+      const next = articles.map(article => {
+        const overlaps = map[article.id] ?? [];
+        if (overlaps.length === 0) return { ...article, overlaps: [] };
         flagged++;
         const topScore = overlaps[0].score;
-        // Auto-deselect high-confidence duplicates so the user has to opt-in
-        const shouldAutoDeselect = topScore >= 0.8 && a.selected;
+        const shouldAutoDeselect = topScore >= 0.8 && article.selected;
         if (shouldAutoDeselect) autoDeselected++;
         return {
-          ...a,
+          ...article,
           overlaps,
-          selected: shouldAutoDeselect ? false : a.selected,
+          selected: shouldAutoDeselect ? false : article.selected,
         };
       });
       onChange(next);
@@ -274,8 +331,8 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
       } else {
         setOverlapBanner(`${flagged} article${flagged === 1 ? '' : 's'} flagged for potential overlap — review before loading.`);
       }
-    } catch (e: any) {
-      setOverlapError(String(e?.message ?? e));
+    } catch (error: unknown) {
+      setOverlapError(String(error instanceof Error ? error.message : error));
     } finally {
       setOverlapScanning(false);
     }
@@ -313,17 +370,13 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
           >
             {overlapScanning ? 'Scanning…' : 'Scan for overlap'}
           </Button>
-          <Tooltip
-            content={!canLoad ? (disabledReason ?? 'Select an environment first') : ''}
-            relationship="label"
-            visible={!canLoad ? undefined : false}
-          >
+          <Tooltip content={loadTooltip ?? ''} relationship="label" visible={loadTooltip ? undefined : false}>
             <Button
               appearance="primary"
               size="large"
               icon={loading ? <Spinner size="tiny" /> : <CloudArrowUp20Filled />}
               onClick={onLoad}
-              disabled={loading || selectedCount === 0 || !canLoad}
+              disabled={loading || selectedCount === 0 || !canLoad || (blockPiiOnLoad && selectedWithFindings > 0)}
             >
               Load {selectedCount} into KB
             </Button>
@@ -352,43 +405,53 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
           {articles.length === 0 && (
             <div className={s.empty}>No articles yet.</div>
           )}
-          {articles.map(a => {
-            const isActive = a.id === active?.id;
+          {articles.map(article => {
+            const isActive = article.id === active?.id;
+            const piiSummary = summarizeFindings(article.findings);
+            const selectionBlocked = blockPiiOnLoad && article.findings.length > 0;
             return (
               <div
-                key={a.id}
+                key={article.id}
                 className={mergeClasses(s.row, isActive && s.rowActive)}
-                onClick={() => setActiveId(a.id)}
+                onClick={() => setActiveId(article.id)}
               >
-                <Checkbox
-                  checked={a.selected}
-                  onClick={e => e.stopPropagation()}
-                  onChange={(_, d) => update(a.id, { selected: !!d.checked })}
-                />
+                <Tooltip content={selectionBlocked ? 'PII blocking is enabled for this run. Resolve the finding or switch to warn-only mode to select this article.' : ''} relationship="label" visible={selectionBlocked ? undefined : false}>
+                  <Checkbox
+                    checked={article.selected}
+                    disabled={selectionBlocked}
+                    onClick={event => event.stopPropagation()}
+                    onChange={(_, data) => update(article.id, { selected: !!data.checked })}
+                  />
+                </Tooltip>
                 <span className={s.fileIcon}><DocumentText24Regular /></span>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
-                  <Text truncate block weight="semibold">{a.title}</Text>
+                  <Text truncate block weight="semibold">{article.title}</Text>
                   <Text size={100} truncate block style={{ color: tokens.colorNeutralForeground3 }}>
-                    {a.source.name}
+                    {article.source.name}
                   </Text>
                 </div>
                 <div className={s.badges}>
-                  {a.overlaps && a.overlaps.length > 0 && (
+                  {article.findings.length > 0 && (
+                    <Tooltip content={piiSummary} relationship="description">
+                      <Badge color="warning" appearance="tint" size="small">PII</Badge>
+                    </Tooltip>
+                  )}
+                  {article.overlaps && article.overlaps.length > 0 && (
                     <Tooltip
-                      content={`Top match: ${a.overlaps[0].article.title} (${Math.round(a.overlaps[0].score * 100)}%)`}
+                      content={`Top match: ${article.overlaps[0].article.title} (${Math.round(article.overlaps[0].score * 100)}%)`}
                       relationship="description"
                     >
                       <Badge color="warning" appearance="tint" size="small">
-                        {a.overlaps.length} overlap{a.overlaps.length === 1 ? '' : 's'}
+                        {article.overlaps.length} overlap{article.overlaps.length === 1 ? '' : 's'}
                       </Badge>
                     </Tooltip>
                   )}
-                  {a.warnings.length > 0 && (
-                    <Tooltip content={a.warnings.join('\n')} relationship="description">
+                  {article.warnings.length > 0 && (
+                    <Tooltip content={article.warnings.join('\n')} relationship="description">
                       <Warning20Filled style={{ color: tokens.colorPaletteYellowForeground1 }} />
                     </Tooltip>
                   )}
-                  <StatusBadge status={a.loadStatus} />
+                  <StatusBadge status={article.loadStatus} />
                 </div>
               </div>
             );
@@ -400,11 +463,11 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
               <span className={s.labelText}>Title</span>
               <Input
                 value={active.title}
-                onChange={(_, d) => update(active.id, { title: d.value })}
+                onChange={(_, data) => update(active.id, { title: data.value })}
                 size="large"
               />
             </div>
-            <TabList selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as any)} appearance="subtle-circular">
+            <TabList selectedValue={tab} onTabSelect={(_, data) => setTab(data.value as 'preview' | 'edit' | 'raw')} appearance="subtle-circular">
               <Tab icon={<Eye24Regular />} value="preview">Preview</Tab>
               <Tab icon={<Edit24Regular />} value="edit">Edit HTML</Tab>
               <Tab icon={<Code24Regular />} value="raw">Raw source</Tab>
@@ -414,13 +477,29 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
             )}
             {tab === 'edit' && (
               <>
-                <Textarea
-                  value={active.html}
-                  className={s.raw}
-                  onChange={(_, d) => update(active.id, { html: d.value })}
-                  resize="vertical"
-                  rows={18}
-                />
+                <TabList
+                  selectedValue={editorMode}
+                  onTabSelect={(_, data) => {
+                    commitEditHtml();
+                    setEditorMode(data.value as 'visual' | 'source');
+                  }}
+                  appearance="subtle-circular"
+                >
+                  <Tab value="visual">Visual</Tab>
+                  <Tab value="source">Source</Tab>
+                </TabList>
+                {editorMode === 'visual' ? (
+                  <RichTextEditor value={editDraft} onCommit={html => { setEditDraft(html); update(active.id, { html }); }} />
+                ) : (
+                  <Textarea
+                    value={editDraft}
+                    className={s.raw}
+                    onChange={(_, data) => setEditDraft(data.value)}
+                    onBlur={commitEditHtml}
+                    resize="vertical"
+                    rows={18}
+                  />
+                )}
                 <div className={s.copilotBar}>
                   <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
                     Let Copilot review this article and propose structure and clarity improvements.
@@ -439,6 +518,23 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
             {tab === 'raw' && (
               <Textarea value={active.rawHtml} className={s.raw} readOnly resize="vertical" rows={18} />
             )}
+            {active.findings.length > 0 && (
+              <MessageBar intent="warning">
+                <MessageBarBody>
+                  <MessageBarTitle>Possible sensitive content detected</MessageBarTitle>
+                  <ul style={{ margin: `${tokens.spacingVerticalXS} 0 0`, paddingLeft: 18 }}>
+                    {active.findings.map(finding => (
+                      <li key={finding.kind}>
+                        <Text size={200}>
+                          {finding.kind} × {finding.count}
+                          {finding.snippets.length > 0 ? ` — ${finding.snippets.join(' · ')}` : ''}
+                        </Text>
+                      </li>
+                    ))}
+                  </ul>
+                </MessageBarBody>
+              </MessageBar>
+            )}
             {active.knowledgeArticleUrl && active.loadStatus === 'success' && (
               <MessageBar intent="success">
                 <MessageBarBody>
@@ -453,8 +549,8 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
               <div className={s.warningBox}>
                 <Text weight="semibold" block style={{ marginBottom: 4 }}>Conversion warnings</Text>
                 <ul style={{ margin: 0, paddingLeft: 18 }}>
-                  {active.warnings.map((w, i) => (
-                    <li key={i}><Text size={200}>{w}</Text></li>
+                  {active.warnings.map((warning, index) => (
+                    <li key={index}><Text size={200}>{warning}</Text></li>
                   ))}
                 </ul>
               </div>
@@ -474,12 +570,16 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
         error={copilotError}
         suggestion={suggestion}
         currentTitle={active?.title ?? ''}
-        onAccept={sugg => active && acceptSuggestion(active, sugg)}
+        onAccept={nextSuggestion => active && acceptSuggestion(active, nextSuggestion)}
         onDecline={() => { setCopilotOpen(false); setSuggestion(undefined); }}
         onRegenerate={() => active && requestSuggestions(active)}
       />
     </Card>
   );
+}
+
+function summarizeFindings(findings: PIIFinding[]): string {
+  return findings.map(finding => `${finding.kind} × ${finding.count}${finding.snippets.length > 0 ? ` — ${finding.snippets.join(' · ')}` : ''}`).join('\n');
 }
 
 function StatusBadge({ status }: { status: ProcessedArticle['loadStatus'] }) {
@@ -579,37 +679,37 @@ function OverlapSection({ overlaps }: { overlaps: OverlapMatch[] }) {
       <Text size={200} block style={{ color: tokens.colorNeutralForeground2, marginBottom: tokens.spacingVerticalS }}>
         Consider unchecking this article if the matches below already cover the topic, or update the existing article instead of creating a duplicate.
       </Text>
-      {overlaps.map(m => (
-        <div key={m.article.id} className={o.item}>
+      {overlaps.map(match => (
+        <div key={match.article.id} className={o.item}>
           <div className={o.score}>
             <div className={o.scoreBar}>
-              <div className={o.scoreFill} style={{ width: `${Math.round(m.score * 100)}%` }} />
+              <div className={o.scoreFill} style={{ width: `${Math.round(match.score * 100)}%` }} />
             </div>
-            <span className={o.scoreLabel}>{Math.round(m.score * 100)}%</span>
+            <span className={o.scoreLabel}>{Math.round(match.score * 100)}%</span>
           </div>
           <div className={o.body}>
             <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spacingHorizontalXS }}>
-              <Text weight="semibold">{m.article.title}</Text>
-              {m.article.url && (
-                <a href={m.article.url} target="_blank" rel="noreferrer" title="Open in D365"
+              <Text weight="semibold">{match.article.title}</Text>
+              {match.article.url && (
+                <a href={match.article.url} target="_blank" rel="noreferrer" title="Open in D365"
                    style={{ display: 'inline-flex', color: tokens.colorBrandForeground1 }}>
                   <Open16Regular />
                 </a>
               )}
-              {m.article.modifiedOn && (
+              {match.article.modifiedOn && (
                 <Text size={100} style={{ color: tokens.colorNeutralForeground3 }}>
-                  · modified {new Date(m.article.modifiedOn).toLocaleDateString()}
+                  · modified {new Date(match.article.modifiedOn).toLocaleDateString()}
                 </Text>
               )}
             </div>
-            {m.article.excerpt && (
+            {match.article.excerpt && (
               <Text size={200} block style={{ color: tokens.colorNeutralForeground2 }}>
-                {m.article.excerpt}
+                {match.article.excerpt}
               </Text>
             )}
             <div className={o.reasons}>
-              {m.reasons.map((r, i) => (
-                <Badge key={i} appearance="outline" color="warning" size="small">{r}</Badge>
+              {match.reasons.map((reason, index) => (
+                <Badge key={index} appearance="outline" color="warning" size="small">{reason}</Badge>
               ))}
             </div>
           </div>

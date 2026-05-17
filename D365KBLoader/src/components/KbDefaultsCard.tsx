@@ -46,6 +46,7 @@ const useStyles = makeStyles({
   },
   full: { gridColumn: '1 / span 2' },
   subjRow: { display: 'flex', alignItems: 'center', gap: tokens.spacingHorizontalS },
+  switchStack: { display: 'flex', gap: tokens.spacingHorizontalL, flexWrap: 'wrap' },
 });
 
 export interface KbDefaultsCardProps {
@@ -64,15 +65,24 @@ export function KbDefaultsCard({ service, config, onChange }: KbDefaultsCardProp
   useEffect(() => {
     let alive = true;
     setLangsLoading(true);
-    service.listLanguages().then(l => { if (alive) setLangs(l); }).catch(() => undefined).finally(() => setLangsLoading(false));
+    service.listLanguages()
+      .then(list => { if (alive) setLangs(list); })
+      .catch(() => undefined)
+      .finally(() => { if (alive) setLangsLoading(false); });
     return () => { alive = false; };
   }, [service]);
+
+  useEffect(() => {
+    if (!config.defaultSubjectId) {
+      setSelectedSubject(undefined);
+    }
+  }, [config.defaultSubjectId]);
 
   function update(patch: Partial<KbConfig>) {
     onChange({ ...config, ...patch });
   }
 
-  const langName = langs.find(l => l.id === config.defaultLanguageId)?.displayName;
+  const langName = langs.find(language => language.id === config.defaultLanguageId)?.displayName;
 
   return (
     <Card className={s.card}>
@@ -90,13 +100,13 @@ export function KbDefaultsCard({ service, config, onChange }: KbDefaultsCardProp
             <Dropdown
               value={langName ?? ''}
               selectedOptions={config.defaultLanguageId ? [config.defaultLanguageId] : []}
-              onOptionSelect={(_, d) => update({ defaultLanguageId: d.optionValue })}
+              onOptionSelect={(_, data) => update({ defaultLanguageId: data.optionValue })}
               placeholder="Select a language"
             >
-              {langs.map(l => (
-                <Option key={l.id} value={l.id} text={l.displayName}>
+              {langs.map(language => (
+                <Option key={language.id} value={language.id} text={language.displayName}>
                   <LocalLanguage24Filled style={{ marginRight: 8 }} />
-                  {l.displayName} ({l.code})
+                  {language.displayName} ({language.code})
                 </Option>
               ))}
             </Dropdown>
@@ -116,7 +126,7 @@ export function KbDefaultsCard({ service, config, onChange }: KbDefaultsCardProp
           <Switch
             checked={!!config.publishOnLoad}
             label={config.publishOnLoad ? 'Publish immediately' : 'Save as Draft'}
-            onChange={(_, d) => update({ publishOnLoad: d.checked })}
+            onChange={(_, data) => update({ publishOnLoad: data.checked })}
           />
         </Field>
 
@@ -124,7 +134,7 @@ export function KbDefaultsCard({ service, config, onChange }: KbDefaultsCardProp
           <Dropdown
             value={duplicateLabel(config.duplicateAction)}
             selectedOptions={[config.duplicateAction ?? 'skip']}
-            onOptionSelect={(_, d) => update({ duplicateAction: d.optionValue as DuplicateAction })}
+            onOptionSelect={(_, data) => update({ duplicateAction: data.optionValue as DuplicateAction })}
           >
             <Option value="skip" text="Skip — leave the existing article">Skip — leave the existing article</Option>
             <Option value="update-existing" text="Update existing — overwrite content and title">Update existing — overwrite content and title</Option>
@@ -133,18 +143,29 @@ export function KbDefaultsCard({ service, config, onChange }: KbDefaultsCardProp
         </Field>
 
         <Field className={s.full} label="Source-folder behavior" hint="Recurse into sub-folders and skip files that succeeded in a prior run.">
-          <div style={{ display: 'flex', gap: tokens.spacingHorizontalL, flexWrap: 'wrap' }}>
+          <div className={s.switchStack}>
             <Switch
               checked={!!config.recursive}
               label="Include sub-folders"
-              onChange={(_, d) => update({ recursive: d.checked })}
+              onChange={(_, data) => update({ recursive: data.checked })}
             />
             <Switch
               checked={!!config.incremental}
               label="Incremental (skip files loaded successfully before)"
-              onChange={(_, d) => update({ incremental: d.checked })}
+              onChange={(_, data) => update({ incremental: data.checked })}
+            />
+            <Switch
+              checked={!!config.blockPiiOnLoad}
+              label={config.blockPiiOnLoad ? 'Block load when PII is detected' : 'Warn only when PII is detected'}
+              onChange={(_, data) => update({ blockPiiOnLoad: data.checked })}
             />
           </div>
+        </Field>
+
+        <Field className={s.full} label="PII / sensitive content guardrail" hint="Email addresses, US SSNs, and credit-card-like patterns are surfaced in Review. Turn this on to keep flagged articles from being selected until the findings are resolved.">
+          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+            Use warn-only mode for demos and content cleanup. Enable blocking mode before production loads.
+          </Text>
         </Field>
       </div>
 
@@ -152,9 +173,9 @@ export function KbDefaultsCard({ service, config, onChange }: KbDefaultsCardProp
         open={subjectOpen}
         service={service}
         onClose={() => setSubjectOpen(false)}
-        onPick={subj => {
-          setSelectedSubject(subj);
-          update({ defaultSubjectId: subj.id });
+        onPick={subject => {
+          setSelectedSubject(subject);
+          update({ defaultSubjectId: subject.id });
           setSubjectOpen(false);
         }}
       />
@@ -162,8 +183,8 @@ export function KbDefaultsCard({ service, config, onChange }: KbDefaultsCardProp
   );
 }
 
-function duplicateLabel(a?: DuplicateAction): string {
-  switch (a) {
+function duplicateLabel(action?: DuplicateAction): string {
+  switch (action) {
     case 'update-existing': return 'Update existing — overwrite content and title';
     case 'create-new': return 'Create new (allow duplicates)';
     default: return 'Skip — leave the existing article';

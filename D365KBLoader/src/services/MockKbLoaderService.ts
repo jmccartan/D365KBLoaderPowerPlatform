@@ -9,6 +9,7 @@ const SAMPLE_DOCX_HTML = `
   <p>This is a <strong>mock</strong> article generated locally because no
   SharePoint connector is wired up yet. Once you run
   <code>pac code add-data-source</code> for SharePoint, real files will appear here.</p>
+  <p>Need help? Email helpdesk@contoso.com or use the pilot card 4111 1111 1111 1111 in the test tenant. The content is intentionally vivid so demos feel realistic and the PII scanner has believable findings.</p>
   <h2>Steps</h2>
   <ol><li>Pick site &amp; folder</li><li>Review</li><li>Load</li></ol>
 `;
@@ -32,7 +33,6 @@ const MOCK_SITES: SharePointSite[] = [
   { id: 's4', name: 'Field Services', url: 'https://contoso.sharepoint.com/sites/FieldServices', description: 'On-site technician procedures' },
 ];
 
-// A small fake folder tree per site, keyed by site URL.
 const MOCK_TREE: Record<string, Record<string, string[]>> = {
   default: {
     '/': ['Shared Documents', 'Site Assets'],
@@ -58,14 +58,12 @@ export class MockKbLoaderService implements KbLoaderService {
 
   async listEnvironments(): Promise<PowerPlatformEnvironment[]> {
     await delay(300);
-    return MOCK_ENVIRONMENTS.map(e => ({ ...e }));
+    return MOCK_ENVIRONMENTS.map(environment => ({ ...environment }));
   }
 
   async checkKnowledgebase(env: PowerPlatformEnvironment): Promise<PowerPlatformEnvironment> {
     await delay(450);
-    // Use the canned status baked into the mock data; in real life we'd hit
-    // /api/data/v9.2/EntityDefinitions(LogicalName='knowledgearticle')
-    const canned = MOCK_ENVIRONMENTS.find(e => e.id === env.id);
+    const canned = MOCK_ENVIRONMENTS.find(environment => environment.id === env.id);
     if (canned?.knowledgebaseStatus === 'error') {
       return { ...env, knowledgebaseStatus: 'error', knowledgebaseError: 'Could not reach environment (simulated).' };
     }
@@ -104,15 +102,13 @@ export class MockKbLoaderService implements KbLoaderService {
     }
     if (config.modifiedSince) {
       const since = new Date(config.modifiedSince).getTime();
-      files = files.filter(f => new Date(f.modified).getTime() >= since);
+      files = files.filter(file => new Date(file.modified).getTime() >= since);
     }
     return files;
   }
 
   async readPriorReports(_config: KbConfig): Promise<Set<string>> {
     await delay(80);
-    // In mock mode we have no SharePoint to read from — return an empty set
-    // so incremental mode visibly does nothing rather than mis-skipping.
     return new Set();
   }
 
@@ -121,9 +117,12 @@ export class MockKbLoaderService implements KbLoaderService {
     if (file.kind === 'html') {
       return new TextEncoder().encode(`<html><body>${SAMPLE_DOCX_HTML}</body></html>`).buffer;
     }
-    // Return text bytes; mammoth would normally read .docx zip — for the mock
-    // we cheat and inject HTML directly via processFile path (handled by pipeline).
     return new TextEncoder().encode(SAMPLE_DOCX_HTML).buffer;
+  }
+
+  async uploadImage(_name: string, bytes: ArrayBuffer, contentType: string): Promise<string> {
+    await delay(60);
+    return `data:${contentType};base64,${arrayBufferToBase64(bytes)}`;
   }
 
   async createKnowledgeArticle(article: ProcessedArticle): Promise<{ id: string; url?: string }> {
@@ -133,15 +132,15 @@ export class MockKbLoaderService implements KbLoaderService {
     return { id, url: `https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=${id}` };
   }
 
-  async updateKnowledgeArticle(existingId: string, article: ProcessedArticle): Promise<void> {
+  async updateKnowledgeArticle(_existingId: string, article: ProcessedArticle): Promise<void> {
     await delay(400);
     if (article.title.toLowerCase().includes('fail')) throw new Error('Simulated update failure');
   }
 
   async findArticleByTitle(title: string): Promise<ExistingKbArticle | undefined> {
     await delay(120);
-    const t = title.trim().toLowerCase();
-    return MOCK_EXISTING_KB.find(a => a.title.trim().toLowerCase() === t);
+    const normalizedTitle = title.trim().toLowerCase();
+    return MOCK_EXISTING_KB.find(article => article.title.trim().toLowerCase() === normalizedTitle);
   }
 
   async listLanguages(): Promise<KbLanguage[]> {
@@ -151,23 +150,22 @@ export class MockKbLoaderService implements KbLoaderService {
 
   async listSubjects(parentId?: string): Promise<KbSubject[]> {
     await delay(120);
-    return MOCK_SUBJECTS.filter(s => (s.parentId ?? null) === (parentId ?? null));
+    return MOCK_SUBJECTS.filter(subject => (subject.parentId ?? null) === (parentId ?? null));
   }
 
   async writeReport(config: KbConfig, log: LogEntry[]): Promise<ReportResult> {
     const { buffer, fileName } = await buildReportWorkbook(config, log);
-    // No SharePoint connector available locally — give it to the user as a download.
     downloadBlob(buffer, fileName);
     return { fileName, location: 'browser download', downloaded: true };
   }
 
   async suggestEdits(article: ProcessedArticle): Promise<ArticleSuggestion> {
-    await delay(800); // pretend we called a model
+    await delay(800);
     return buildMockSuggestion(article);
   }
 
   async findOverlaps(articles: ProcessedArticle[]): Promise<Record<string, OverlapMatch[]>> {
-    await delay(500); // pretend we queried Dataverse
+    await delay(500);
     return scoreOverlaps(articles, MOCK_EXISTING_KB);
   }
 }
@@ -214,62 +212,79 @@ const MOCK_LANGUAGES: KbLanguage[] = [
 ];
 
 const MOCK_SUBJECTS: KbSubject[] = [
-  { id: 'sub-it',         name: 'IT',                path: '/IT',                hasChildren: true },
-  { id: 'sub-it-net',     name: 'Networking',        path: '/IT/Networking',     parentId: 'sub-it' },
-  { id: 'sub-it-acct',    name: 'Accounts & access', path: '/IT/Accounts',       parentId: 'sub-it' },
-  { id: 'sub-it-hw',      name: 'Hardware',          path: '/IT/Hardware',       parentId: 'sub-it' },
-  { id: 'sub-hr',         name: 'HR',                path: '/HR',                hasChildren: true },
-  { id: 'sub-hr-onb',     name: 'Onboarding',        path: '/HR/Onboarding',     parentId: 'sub-hr' },
-  { id: 'sub-hr-ben',     name: 'Benefits',          path: '/HR/Benefits',       parentId: 'sub-hr' },
-  { id: 'sub-support',    name: 'Customer Support',  path: '/Customer Support',  hasChildren: false },
-  { id: 'sub-field',      name: 'Field Service',     path: '/Field Service',     hasChildren: false },
+  { id: 'sub-it', name: 'IT', path: '/IT', hasChildren: true },
+  { id: 'sub-it-net', name: 'Networking', path: '/IT/Networking', parentId: 'sub-it' },
+  { id: 'sub-it-acct', name: 'Accounts & access', path: '/IT/Accounts', parentId: 'sub-it' },
+  { id: 'sub-it-hw', name: 'Hardware', path: '/IT/Hardware', parentId: 'sub-it' },
+  { id: 'sub-hr', name: 'HR', path: '/HR', hasChildren: true },
+  { id: 'sub-hr-onb', name: 'Onboarding', path: '/HR/Onboarding', parentId: 'sub-hr' },
+  { id: 'sub-hr-ben', name: 'Benefits', path: '/HR/Benefits', parentId: 'sub-hr' },
+  { id: 'sub-support', name: 'Customer Support', path: '/Customer Support', hasChildren: false },
+  { id: 'sub-field', name: 'Field Service', path: '/Field Service', hasChildren: false },
 ];
 
 const MOCK_EXISTING_KB: ExistingKbArticle[] = [
   {
-    id: 'ka-1001', title: 'How to reset your Windows password',
+    id: 'ka-1001',
+    title: 'How to reset your Windows password',
     excerpt: 'Step-by-step guide for resetting your domain account password via the self-service portal. Covers forgotten passwords, account lockouts, and MFA reset.',
     url: 'https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=ka-1001',
     modifiedOn: '2026-02-14',
   },
   {
-    id: 'ka-1002', title: 'VPN setup for remote workers (Windows + macOS)',
+    id: 'ka-1002',
+    title: 'VPN setup for remote workers (Windows + macOS)',
     excerpt: 'Configure the corporate VPN client, connect, and troubleshoot common authentication errors. Includes split-tunnel and MFA setup.',
     url: 'https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=ka-1002',
     modifiedOn: '2026-04-02',
   },
   {
-    id: 'ka-1003', title: 'Connect to corporate WiFi (CONTOSO-CORP)',
+    id: 'ka-1003',
+    title: 'Connect to corporate WiFi (CONTOSO-CORP)',
     excerpt: 'Join the CONTOSO-CORP wireless network with your work account. Covers certificate-based auth and BYOD enrollment.',
     url: 'https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=ka-1003',
     modifiedOn: '2025-11-20',
   },
   {
-    id: 'ka-1004', title: 'Printer troubleshooting: paper jams and offline status',
+    id: 'ka-1004',
+    title: 'Printer troubleshooting: paper jams and offline status',
     excerpt: 'Diagnose and clear paper jams, reset printer queues, and resolve offline / driver issues on Windows.',
     url: 'https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=ka-1004',
     modifiedOn: '2026-01-12',
   },
   {
-    id: 'ka-1005', title: 'Onboarding checklist for new employees',
+    id: 'ka-1005',
+    title: 'Onboarding checklist for new employees',
     excerpt: 'Day-one checklist: laptop, badge, account setup, mandatory training, and benefits enrollment.',
     url: 'https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=ka-1005',
     modifiedOn: '2026-03-30',
   },
   {
-    id: 'ka-1006', title: 'Email outage runbook',
+    id: 'ka-1006',
+    title: 'Email outage runbook',
     excerpt: 'Tier-1 response steps when corporate email is unreachable. Includes Exchange health checks and customer communication template.',
     url: 'https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=ka-1006',
     modifiedOn: '2025-10-08',
   },
 ];
 
-function delay(ms: number) { return new Promise(res => setTimeout(res, ms)); }
+function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-function normalizePath(p: string): string {
-  if (!p || p === '/' || p.trim() === '') return '/';
-  let n = p.trim();
-  if (!n.startsWith('/')) n = '/' + n;
-  if (n.length > 1 && n.endsWith('/')) n = n.slice(0, -1);
-  return n;
+function normalizePath(pathValue: string): string {
+  if (!pathValue || pathValue === '/' || pathValue.trim() === '') return '/';
+  let normalized = pathValue.trim();
+  if (!normalized.startsWith('/')) normalized = '/' + normalized;
+  if (normalized.length > 1 && normalized.endsWith('/')) normalized = normalized.slice(0, -1);
+  return normalized;
+}
+
+function arrayBufferToBase64(bytes: ArrayBuffer): string {
+  const array = new Uint8Array(bytes);
+  let binary = '';
+  for (const byte of array) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }

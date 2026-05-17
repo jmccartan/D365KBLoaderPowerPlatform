@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Card, Text, makeStyles, tokens, Button, mergeClasses } from '@fluentui/react-components';
-import { DocumentArrowUpFilled, FolderArrowUp24Regular } from '@fluentui/react-icons';
+import { DocumentArrowUpFilled } from '@fluentui/react-icons';
 import type { SourceFile } from '../types';
 import { classify } from '../processing/pipeline';
 
@@ -48,16 +48,16 @@ export function LocalFilesDropZone({ onFiles }: LocalFilesDropZoneProps) {
   function handle(list: FileList | File[] | null) {
     if (!list) return;
     const files: Array<{ file: File; source: SourceFile }> = [];
-    for (const f of Array.from(list)) {
-      const kind = classify(f.name);
+    for (const file of Array.from(list)) {
+      const kind = classify(file.name);
       files.push({
-        file: f,
+        file,
         source: {
-          id: `local-${f.name}-${f.size}-${f.lastModified}`,
-          name: f.name,
-          path: (f as any).webkitRelativePath || `/(local)/${f.name}`,
-          size: f.size,
-          modified: new Date(f.lastModified).toISOString(),
+          id: `local-${file.name}-${file.size}-${file.lastModified}`,
+          name: file.name,
+          path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || `/(local)/${file.name}`,
+          size: file.size,
+          modified: new Date(file.lastModified).toISOString(),
           kind,
         },
       });
@@ -69,12 +69,12 @@ export function LocalFilesDropZone({ onFiles }: LocalFilesDropZoneProps) {
     <>
       <Card
         className={mergeClasses(s.zone, active && s.zoneActive)}
-        onDragOver={e => { e.preventDefault(); setActive(true); }}
+        onDragOver={event => { event.preventDefault(); setActive(true); }}
         onDragLeave={() => setActive(false)}
-        onDrop={e => {
-          e.preventDefault();
+        onDrop={event => {
+          event.preventDefault();
           setActive(false);
-          handle(e.dataTransfer.files);
+          handle(event.dataTransfer.files);
         }}
         onClick={() => inputRef.current?.click()}
         role="button"
@@ -91,7 +91,7 @@ export function LocalFilesDropZone({ onFiles }: LocalFilesDropZoneProps) {
           <Button
             appearance="primary"
             icon={<DocumentArrowUpFilled />}
-            onClick={e => { e.stopPropagation(); inputRef.current?.click(); }}
+            onClick={event => { event.stopPropagation(); inputRef.current?.click(); }}
           >
             Choose files…
           </Button>
@@ -103,7 +103,7 @@ export function LocalFilesDropZone({ onFiles }: LocalFilesDropZoneProps) {
         multiple
         accept=".docx,.html,.htm,.pdf,.md,.markdown"
         style={{ display: 'none' }}
-        onChange={e => handle(e.target.files)}
+        onChange={event => handle(event.target.files)}
       />
     </>
   );

@@ -12,6 +12,12 @@ export interface SourceFile {
   kind: SourceFileKind;
 }
 
+export interface PIIFinding {
+  kind: 'email' | 'ssn' | 'credit-card';
+  count: number;
+  snippets: string[];
+}
+
 export interface ProcessedArticle {
   id: string;
   source: SourceFile;
@@ -21,6 +27,7 @@ export interface ProcessedArticle {
   /** Raw HTML before sanitization (for the Raw view). */
   rawHtml: string;
   warnings: string[];
+  findings: PIIFinding[];
   selected: boolean;
   /** Set after a successful load. */
   knowledgeArticleId?: string;
@@ -81,6 +88,8 @@ export interface KbConfig {
   modifiedSince?: string;
   /** Skip files already loaded successfully in a prior run (read from prior report). */
   incremental?: boolean;
+  /** Prevent loading articles with possible PII until findings are resolved. */
+  blockPiiOnLoad?: boolean;
 }
 
 /** A Copilot-generated suggestion for editing a KB article. */
