@@ -13,12 +13,15 @@ const SAMPLE_DOCX_HTML = `
   <ol><li>Pick site &amp; folder</li><li>Review</li><li>Load</li></ol>
 `;
 
-function makeMockFiles(): SourceFile[] {
+function makeMockFiles(folder: string = '/Shared Documents/KB'): SourceFile[] {
+  const f = folder.endsWith('/') ? folder.slice(0, -1) : folder;
+  const variant = f.split('/').pop() ?? '';
+  const suffix = variant && variant !== 'KB' ? `-${variant.toLowerCase()}` : '';
   return [
-    { id: 'mock-1', name: 'Reset-Password.html', path: '/Shared Documents/KB/Reset-Password.html', size: 1024, modified: new Date().toISOString(), kind: 'html' },
-    { id: 'mock-2', name: 'VPN-Setup.docx', path: '/Shared Documents/KB/VPN-Setup.docx', size: 22048, modified: new Date().toISOString(), kind: 'docx' },
-    { id: 'mock-3', name: 'Onboarding-Checklist.docx', path: '/Shared Documents/KB/Onboarding-Checklist.docx', size: 8192, modified: new Date().toISOString(), kind: 'docx' },
-    { id: 'mock-4', name: 'Printer-Troubleshooting.htm', path: '/Shared Documents/KB/Printer-Troubleshooting.htm', size: 3050, modified: new Date().toISOString(), kind: 'html' }
+    { id: `mock-1${suffix}`, name: `Reset-Password${suffix}.html`, path: `${f}/Reset-Password${suffix}.html`, size: 1024, modified: new Date().toISOString(), kind: 'html' },
+    { id: `mock-2${suffix}`, name: `VPN-Setup${suffix}.docx`, path: `${f}/VPN-Setup${suffix}.docx`, size: 22048, modified: new Date().toISOString(), kind: 'docx' },
+    { id: `mock-3${suffix}`, name: `Onboarding-Checklist${suffix}.docx`, path: `${f}/Onboarding-Checklist${suffix}.docx`, size: 8192, modified: new Date().toISOString(), kind: 'docx' },
+    { id: `mock-4${suffix}`, name: `Printer-Troubleshooting${suffix}.htm`, path: `${f}/Printer-Troubleshooting${suffix}.htm`, size: 3050, modified: new Date().toISOString(), kind: 'html' },
   ];
 }
 
@@ -89,9 +92,28 @@ export class MockKbLoaderService implements KbLoaderService {
     });
   }
 
-  async listFiles(_config: KbConfig): Promise<SourceFile[]> {
+  async listFiles(config: KbConfig): Promise<SourceFile[]> {
     await delay(400);
-    return makeMockFiles();
+    let files = makeMockFiles(config.folderPath || '/');
+    if (config.recursive) {
+      files = [
+        ...files,
+        ...makeMockFiles(`${config.folderPath || '/'}/Networking`.replace(/\/+/g, '/')),
+        ...makeMockFiles(`${config.folderPath || '/'}/Accounts`.replace(/\/+/g, '/')),
+      ];
+    }
+    if (config.modifiedSince) {
+      const since = new Date(config.modifiedSince).getTime();
+      files = files.filter(f => new Date(f.modified).getTime() >= since);
+    }
+    return files;
+  }
+
+  async readPriorReports(_config: KbConfig): Promise<Set<string>> {
+    await delay(80);
+    // In mock mode we have no SharePoint to read from — return an empty set
+    // so incremental mode visibly does nothing rather than mis-skipping.
+    return new Set();
   }
 
   async downloadFile(file: SourceFile): Promise<ArrayBuffer> {

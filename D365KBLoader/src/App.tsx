@@ -5,6 +5,7 @@ import {
 import { BookDatabase24Filled, Sparkle20Filled } from '@fluentui/react-icons';
 import { ConfigPanel } from './components/ConfigPanel';
 import { KbDefaultsCard } from './components/KbDefaultsCard';
+import { LocalFilesDropZone } from './components/LocalFilesDropZone';
 import { ReviewPanel } from './components/ReviewPanel';
 import { ProgressPanel } from './components/ProgressPanel';
 import { Stepper } from './components/Stepper';
@@ -12,7 +13,7 @@ import { EnvironmentPicker } from './components/EnvironmentPicker';
 import { processFile } from './processing/pipeline';
 import { getService } from './services';
 import { heroGradient } from './theme';
-import type { KbConfig, ProcessedArticle, LogEntry, ReportResult, PowerPlatformEnvironment, KbUser } from './types';
+import type { KbConfig, ProcessedArticle, LogEntry, ReportResult, PowerPlatformEnvironment, KbUser, SourceFile } from './types';
 
 const useStyles = makeStyles({
   shell: {
@@ -180,8 +181,21 @@ export function App() {
       const supported = files.filter(f => f.kind !== 'unsupported');
       const skipped = files.filter(f => f.kind === 'unsupported');
 
+      // Incremental mode: read the prior run report(s) from the folder
+      // and skip files we've already loaded successfully.
+      let alreadyLoaded: Set<string> = new Set();
+      if (config.incremental && svc.readPriorReports) {
+        try { alreadyLoaded = await svc.readPriorReports(config); } catch { /* ignore */ }
+      }
+
+      const toProcess = supported.filter(f => !alreadyLoaded.has(f.path));
+      const incSkipped = supported.length - toProcess.length;
+      if (incSkipped > 0) {
+        appendLog(mkLog('(incremental)', 'skip', 'info', `Skipped ${incSkipped} files already loaded in a prior run.`));
+      }
+
       const processed: ProcessedArticle[] = [];
-      for (const f of supported) {
+      for (const f of toProcess) {
         try {
           const buf = await svc.downloadFile(f);
           const a = await processFile(f, buf);
@@ -202,6 +216,32 @@ export function App() {
       setStage('review');
     } catch (e: any) {
       setScanError(String(e?.message ?? e));
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  async function ingestLocalFiles(items: Array<{ file: File; source: SourceFile }>) {
+    setScanning(true);
+    setScanError(undefined);
+    try {
+      const processed: ProcessedArticle[] = [...articles];
+      for (const it of items) {
+        if (it.source.kind === 'unsupported') {
+          appendLog(mkLog(it.file.name, 'skip', 'info', 'Unsupported type', it.source.path));
+          continue;
+        }
+        try {
+          const buf = await it.file.arrayBuffer();
+          const a = await processFile(it.source, buf);
+          processed.push(a);
+          appendLog(mkLog(it.file.name, 'process', 'success', 'Converted to HTML (local upload)', it.source.path));
+        } catch (e: any) {
+          appendLog(mkLog(it.file.name, 'process', 'error', String(e?.message ?? e), it.source.path));
+        }
+      }
+      setArticles(processed);
+      if (processed.length > 0) setStage('review');
     } finally {
       setScanning(false);
     }
@@ -354,6 +394,10 @@ export function App() {
           <>
             <ConfigPanel config={config} onChange={setConfig} onScan={handleScan} scanning={scanning} error={scanError} />
             <KbDefaultsCard service={svc} config={config} onChange={setConfig} />
+            <Text size={300} weight="semibold" style={{ marginTop: tokens.spacingVerticalL }}>
+              …or upload local files
+            </Text>
+            <LocalFilesDropZone onFiles={ingestLocalFiles} />
           </>
         )}
         {stage === 'review' && (

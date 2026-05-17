@@ -1,7 +1,7 @@
 /**
  * Domain types for the KB loader.
  */
-export type SourceFileKind = 'docx' | 'html' | 'unsupported';
+export type SourceFileKind = 'docx' | 'html' | 'pdf' | 'md' | 'unsupported';
 
 export interface SourceFile {
   id: string;
