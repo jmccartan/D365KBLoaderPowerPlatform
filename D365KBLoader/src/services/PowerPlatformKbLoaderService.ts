@@ -1,6 +1,7 @@
 import type { KbLoaderService } from './KbLoaderService';
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult } from '../types';
 import { classify } from '../processing/pipeline';
+import { buildReportWorkbook } from '../reporting/report';
 
 /**
  * Real implementation that uses the generated Power Apps Code App SDK clients.
@@ -15,15 +16,52 @@ import { classify } from '../processing/pipeline';
  *
  * Connector action references (current Power Platform connector schema):
  *   SharePoint:
+ *     - GetAllSites / GetRootSiteCollection -> discover sites (Browse Site dialog)
+ *     - GetFolderItemsByPath  -> list sub-folders (Browse Folder dialog)
  *     - GetFolderFilesByPath  -> list files in folder
  *     - GetFileContent         -> download bytes (FileIdentifier)
- *     - PostItem               -> add list item to log list
- *     - GetItems               -> read log list
+ *     - CreateFile             -> upload the per-run .xlsx report into the source folder
  *   Dataverse:
  *     - CreateRecord on table 'knowledgearticle'
  *       Required fields: title, content (HTML), description (optional), articlepublicnumber (auto)
  */
 export class PowerPlatformKbLoaderService implements KbLoaderService {
+  async listSites(): Promise<SharePointSite[]> {
+    // The SharePoint Online connector exposes site discovery via
+    // `GetAllSites` (or, depending on connector version, `GetSitesAvailableForCurrentUser`).
+    // Map each returned site to { id, name, url }.
+    const sp = await loadSharePointClient();
+    const res = await sp.GetAllSites?.();
+    if (!res?.value) {
+      throw new Error('SharePoint connector did not return any sites. Verify the connection has site-discovery permission.');
+    }
+    return res.value.map((s: any) => ({
+      id: s.Id ?? s.Url,
+      name: s.DisplayName ?? s.Title ?? s.Name,
+      url: s.Url,
+      description: s.Description,
+    } as SharePointSite));
+  }
+
+  async listFolders(siteUrl: string, folderPath: string): Promise<FolderItem[]> {
+    // The SharePoint connector returns folder + file entries together; filter to folders.
+    // Most connector versions expose `GetFolderItemsByPath` (preferred) or
+    // `GetFolderMetadataByPath` + a children listing.
+    const sp = await loadSharePointClient();
+    const path = folderPath && folderPath !== '/' ? folderPath : '/';
+    const res = await sp.GetFolderItemsByPath?.({
+      dataset: siteUrl,
+      folderPath: path,
+    });
+    return (res?.value ?? [])
+      .filter((it: any) => it.IsFolder)
+      .map((it: any) => ({
+        name: it.Name ?? it.FilenameWithExtension,
+        path: it.FullPath ?? it.Path,
+        hasChildren: it.HasChildren,
+      } as FolderItem));
+  }
+
   async listFiles(config: KbConfig): Promise<SourceFile[]> {
     const sp = await loadSharePointClient();
     const res = await sp.GetFolderFilesByPath({
@@ -63,41 +101,19 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
     return created.knowledgearticleid ?? created.id;
   }
 
-  async appendLog(config: KbConfig, entry: LogEntry): Promise<void> {
+  async writeReport(config: KbConfig, log: LogEntry[]): Promise<ReportResult> {
+    const { buffer, fileName } = await buildReportWorkbook(config, log);
     const sp = await loadSharePointClient();
-    await sp.PostItem({
+    // Upload the .xlsx into the same folder we scanned. The SharePoint connector's
+    // CreateFile action accepts dataset (site), folderPath, name, and file bytes.
+    await sp.CreateFile({
       dataset: config.siteUrl,
-      table: config.logListName,
-      item: {
-        Title: entry.fileName,
-        Action: entry.action,
-        Status: entry.status,
-        Message: entry.message,
-        SourcePath: entry.sourcePath ?? '',
-        KnowledgeArticleId: entry.knowledgeArticleId ?? '',
-        Timestamp: entry.timestamp
-      }
+      folderPath: config.folderPath || '/',
+      name: fileName,
+      body: buffer,
     });
-  }
-
-  async getLog(config: KbConfig, top = 100): Promise<LogEntry[]> {
-    const sp = await loadSharePointClient();
-    const res = await sp.GetItems({
-      dataset: config.siteUrl,
-      table: config.logListName,
-      $top: top,
-      $orderby: 'Created desc'
-    });
-    return (res.value ?? []).map((it: any) => ({
-      id: String(it.ID),
-      timestamp: it.Timestamp ?? it.Created,
-      fileName: it.Title,
-      action: it.Action,
-      status: it.Status,
-      message: it.Message,
-      sourcePath: it.SourcePath,
-      knowledgeArticleId: it.KnowledgeArticleId
-    }));
+    const location = `${config.folderPath || '/'}/${fileName}`.replace(/\/+/g, '/');
+    return { fileName, location };
   }
 }
 

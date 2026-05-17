@@ -23,7 +23,7 @@ SharePoint list so you have a durable audit trail.
   with `pac code push`.
 - React 18 + TypeScript + Vite
 - Fluent UI v9
-- `mammoth` (DOCX → HTML), `sanitize-html`
+- `mammoth` (DOCX → HTML), `sanitize-html`, `exceljs` (run report)
 
 ## Project layout
 
@@ -33,10 +33,9 @@ D365KBLoader/                Code App project
     App.tsx                  Top-level wizard
     components/              ConfigPanel, ReviewPanel, ProgressPanel
     processing/pipeline.ts   DOCX/HTML → sanitized HTML
+    reporting/report.ts      Excel run report (exceljs)
     services/                KbLoaderService interface + Mock + PowerPlatform impl
     types.ts
-sharepoint/
-  KbLoaderLog.list.json      Schema for the SharePoint log list
 ```
 
 ## Local dev (mock data, no env required)
@@ -77,19 +76,7 @@ sample files end-to-end without touching SharePoint or Dataverse.
    `loadSharePointClient` and `loadDataverseClient` stubs with the actual
    imports the CLI generated. The TODO comments mark the spots.
 
-5. **Create the log list** in your SharePoint site using the schema in
-   `sharepoint/KbLoaderLog.list.json`. Default name expected by the UI:
-   **KB Loader Log**.
-
-6. **Switch to real mode**:
-
-   In `.env.local`:
-
-   ```
-   VITE_USE_REAL_CONNECTORS=true
-   ```
-
-7. **Build & push**:
+5. **Build & push**:
 
    ```powershell
    npm run build
@@ -112,10 +99,12 @@ Adjust `createKnowledgeArticle` in
 
 ## Activity log
 
-Every scan/process/load/skip action writes one row to the SharePoint list
-defined in **Configure**. The Progress tab reads back from the list with
-**Refresh log**, so the history is durable and visible to anyone with list
-access — not just the user running the load.
+Every scan / process / load / skip action is recorded in-memory and shown in
+the Progress tab. When a load finishes, a formatted Excel report
+(`KB-Loader-Report-*.xlsx`) is written to the **same folder you scanned** so
+the history travels with the source content — no separate list, no extra
+SharePoint plumbing. You can also click **Save Excel report** at any time to
+regenerate it.
 
 ## Why a Code App (not classic canvas)?
 

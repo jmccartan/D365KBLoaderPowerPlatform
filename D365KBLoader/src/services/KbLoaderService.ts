@@ -1,4 +1,4 @@
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult } from '../types';
 
 /**
  * Service contract. The MockService implementation lets the UI run locally
@@ -9,9 +9,13 @@ import type { SourceFile, ProcessedArticle, KbConfig, LogEntry } from '../types'
  * Wire-up steps for the real service are documented in README.md.
  */
 export interface KbLoaderService {
+  /** Discover SharePoint sites the user has access to (for the Browse dialog). */
+  listSites(): Promise<SharePointSite[]>;
+  /** List sub-folders of the given path within a site (folderPath '/' = root). */
+  listFolders(siteUrl: string, folderPath: string): Promise<FolderItem[]>;
   listFiles(config: KbConfig): Promise<SourceFile[]>;
   downloadFile(file: SourceFile): Promise<ArrayBuffer>;
   createKnowledgeArticle(article: ProcessedArticle): Promise<string>;
-  appendLog(config: KbConfig, entry: LogEntry): Promise<void>;
-  getLog(config: KbConfig, top?: number): Promise<LogEntry[]>;
+  /** Persist a formatted Excel report of the run to the source folder (or download in mock mode). */
+  writeReport(config: KbConfig, log: LogEntry[]): Promise<ReportResult>;
 }

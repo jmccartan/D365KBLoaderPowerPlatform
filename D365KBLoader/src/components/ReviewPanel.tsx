@@ -1,21 +1,156 @@
 import { useState } from 'react';
 import {
-  Card, CardHeader, Text, Button, Checkbox, makeStyles, tokens,
-  Tab, TabList, Input, Textarea, Badge, Divider, Tooltip
+  Card, Text, Button, Checkbox, makeStyles, tokens, mergeClasses,
+  Tab, TabList, Input, Textarea, Badge, Tooltip, Spinner, Divider
 } from '@fluentui/react-components';
-import { Edit24Regular, Eye24Regular, Code24Regular } from '@fluentui/react-icons';
+import {
+  Edit24Regular, Eye24Regular, Code24Regular, DocumentText24Regular,
+  Warning20Filled, CloudArrowUp20Filled, CheckmarkCircle20Filled, DismissCircle20Filled
+} from '@fluentui/react-icons';
 import type { ProcessedArticle } from '../types';
 
 const useStyles = makeStyles({
-  wrap: { display: 'grid', gridTemplateColumns: '380px 1fr', gap: tokens.spacingHorizontalL, height: 'calc(100vh - 280px)' },
-  list: { overflow: 'auto', padding: tokens.spacingHorizontalS },
-  detail: { padding: tokens.spacingHorizontalL, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: tokens.spacingVerticalM },
-  row: { display: 'flex', alignItems: 'center', gap: tokens.spacingHorizontalS, padding: tokens.spacingVerticalS, borderRadius: tokens.borderRadiusMedium, cursor: 'pointer' },
-  rowActive: { backgroundColor: tokens.colorNeutralBackground2Selected },
-  preview: { border: `1px solid ${tokens.colorNeutralStroke2}`, borderRadius: tokens.borderRadiusMedium, padding: tokens.spacingHorizontalM, minHeight: '300px', backgroundColor: tokens.colorNeutralBackground1 },
-  raw: { fontFamily: 'Consolas, monospace', fontSize: '12px', minHeight: '300px' },
-  toolbar: { display: 'flex', gap: tokens.spacingHorizontalM, alignItems: 'center', flexWrap: 'wrap' },
-  badges: { display: 'flex', gap: tokens.spacingHorizontalXS }
+  card: {
+    padding: 0,
+    overflow: 'hidden',
+    boxShadow: tokens.shadow8,
+    borderRadius: tokens.borderRadiusXLarge,
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: 'calc(100vh - 280px)',
+  },
+  accent: {
+    height: '4px',
+    background: 'linear-gradient(90deg, #0B3A6F 0%, #1278D2 50%, #4F9DE8 100%)',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalM,
+    padding: `${tokens.spacingVerticalL} ${tokens.spacingHorizontalXL}`,
+    flexWrap: 'wrap',
+  },
+  headerText: { display: 'flex', flexDirection: 'column', flex: 1, minWidth: '200px' },
+  title: {
+    fontSize: tokens.fontSizeBase500,
+    fontWeight: tokens.fontWeightSemibold,
+    color: tokens.colorNeutralForeground1,
+  },
+  sub: { color: tokens.colorNeutralForeground3, fontSize: tokens.fontSizeBase200 },
+  toolbar: {
+    display: 'flex',
+    gap: tokens.spacingHorizontalM,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  countChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalS}`,
+    borderRadius: tokens.borderRadiusCircular,
+    backgroundColor: tokens.colorBrandBackground2,
+    color: tokens.colorBrandForeground1,
+    fontSize: tokens.fontSizeBase200,
+    fontWeight: tokens.fontWeightSemibold,
+  },
+  wrap: {
+    display: 'grid',
+    gridTemplateColumns: '380px 1fr',
+    gap: 0,
+    flex: 1,
+    minHeight: 0,
+  },
+  list: {
+    overflow: 'auto',
+    padding: tokens.spacingHorizontalS,
+    backgroundColor: tokens.colorNeutralBackground2,
+    borderRight: `1px solid ${tokens.colorNeutralStroke2}`,
+  },
+  row: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalS,
+    padding: `${tokens.spacingVerticalS} ${tokens.spacingHorizontalM}`,
+    borderRadius: tokens.borderRadiusMedium,
+    cursor: 'pointer',
+    borderTopWidth: '1px',
+    borderRightWidth: '1px',
+    borderBottomWidth: '1px',
+    borderLeftWidth: '1px',
+    borderTopStyle: 'solid',
+    borderRightStyle: 'solid',
+    borderBottomStyle: 'solid',
+    borderLeftStyle: 'solid',
+    borderTopColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderLeftColor: 'transparent',
+    marginBottom: tokens.spacingVerticalXS,
+    transitionProperty: 'background-color, border-color',
+    transitionDuration: tokens.durationFast,
+    ':hover': {
+      backgroundColor: tokens.colorNeutralBackground1Hover,
+    },
+  },
+  rowActive: {
+    backgroundColor: tokens.colorBrandBackground2,
+    borderTopColor: tokens.colorBrandStroke2,
+    borderRightColor: tokens.colorBrandStroke2,
+    borderBottomColor: tokens.colorBrandStroke2,
+    borderLeftColor: tokens.colorBrandStroke2,
+    ':hover': { backgroundColor: tokens.colorBrandBackground2 },
+  },
+  fileIcon: {
+    width: '32px',
+    height: '32px',
+    borderRadius: tokens.borderRadiusMedium,
+    backgroundColor: tokens.colorNeutralBackground1,
+    color: tokens.colorBrandForeground1,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  badges: { display: 'flex', gap: tokens.spacingHorizontalXS, alignItems: 'center' },
+  detail: {
+    padding: tokens.spacingHorizontalXL,
+    overflow: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: tokens.spacingVerticalM,
+    backgroundColor: tokens.colorNeutralBackground1,
+  },
+  preview: {
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    borderRadius: tokens.borderRadiusLarge,
+    padding: tokens.spacingHorizontalL,
+    minHeight: '320px',
+    backgroundColor: tokens.colorNeutralBackground1,
+    boxShadow: tokens.shadow2,
+  },
+  raw: {
+    fontFamily: 'Consolas, Cascadia Code, monospace',
+    fontSize: '12.5px',
+    minHeight: '320px',
+  },
+  labelText: {
+    fontWeight: tokens.fontWeightSemibold,
+    fontSize: tokens.fontSizeBase200,
+    color: tokens.colorNeutralForeground2,
+    marginBottom: tokens.spacingVerticalXS,
+    display: 'block',
+  },
+  warningBox: {
+    border: `1px solid ${tokens.colorPaletteYellowBorder1}`,
+    backgroundColor: tokens.colorPaletteYellowBackground1,
+    borderRadius: tokens.borderRadiusMedium,
+    padding: tokens.spacingHorizontalM,
+  },
+  empty: {
+    padding: tokens.spacingHorizontalXL,
+    textAlign: 'center',
+    color: tokens.colorNeutralForeground3,
+  },
 });
 
 export interface ReviewPanelProps {
@@ -44,39 +179,64 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
   };
 
   return (
-    <Card>
-      <CardHeader
-        header={<Text weight="semibold" size={500}>2. Review &amp; edit</Text>}
-        description={<Text size={200}>{articles.length} files processed · {selectedCount} selected for load</Text>}
-        action={
-          <div className={s.toolbar}>
-            <Checkbox label="Select all" checked={allSelected ? true : someSelected ? 'mixed' : false} onChange={toggleAll} />
-            <Button appearance="primary" onClick={onLoad} disabled={loading || selectedCount === 0}>
-              Load {selectedCount} into KB
-            </Button>
-          </div>
-        }
-      />
+    <Card className={s.card}>
+      <div className={s.accent} />
+      <div className={s.header}>
+        <div className={s.headerText}>
+          <span className={s.title}>Review &amp; edit</span>
+          <span className={s.sub}>
+            {articles.length} files processed
+            {' · '}
+            <span className={s.countChip}>{selectedCount} selected</span>
+          </span>
+        </div>
+        <div className={s.toolbar}>
+          <Checkbox
+            label="Select all"
+            checked={allSelected ? true : someSelected ? 'mixed' : false}
+            onChange={toggleAll}
+          />
+          <Button
+            appearance="primary"
+            size="large"
+            icon={loading ? <Spinner size="tiny" /> : <CloudArrowUp20Filled />}
+            onClick={onLoad}
+            disabled={loading || selectedCount === 0}
+          >
+            Load {selectedCount} into KB
+          </Button>
+        </div>
+      </div>
       <Divider />
       <div className={s.wrap}>
         <div className={s.list}>
+          {articles.length === 0 && (
+            <div className={s.empty}>No articles yet.</div>
+          )}
           {articles.map(a => {
             const isActive = a.id === active?.id;
             return (
-              <div key={a.id} className={`${s.row} ${isActive ? s.rowActive : ''}`} onClick={() => setActiveId(a.id)}>
+              <div
+                key={a.id}
+                className={mergeClasses(s.row, isActive && s.rowActive)}
+                onClick={() => setActiveId(a.id)}
+              >
                 <Checkbox
                   checked={a.selected}
                   onClick={e => e.stopPropagation()}
                   onChange={(_, d) => update(a.id, { selected: !!d.checked })}
                 />
+                <span className={s.fileIcon}><DocumentText24Regular /></span>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
                   <Text truncate block weight="semibold">{a.title}</Text>
-                  <Text size={100} truncate block>{a.source.name}</Text>
+                  <Text size={100} truncate block style={{ color: tokens.colorNeutralForeground3 }}>
+                    {a.source.name}
+                  </Text>
                 </div>
                 <div className={s.badges}>
                   {a.warnings.length > 0 && (
                     <Tooltip content={a.warnings.join('\n')} relationship="description">
-                      <Badge color="warning" size="small">!</Badge>
+                      <Warning20Filled style={{ color: tokens.colorPaletteYellowForeground1 }} />
                     </Tooltip>
                   )}
                   <StatusBadge status={a.loadStatus} />
@@ -87,10 +247,15 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
         </div>
         {active && (
           <div className={s.detail}>
-            <Field label="Title">
-              <Input value={active.title} onChange={(_, d) => update(active.id, { title: d.value })} />
-            </Field>
-            <TabList selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as any)}>
+            <div>
+              <span className={s.labelText}>Title</span>
+              <Input
+                value={active.title}
+                onChange={(_, d) => update(active.id, { title: d.value })}
+                size="large"
+              />
+            </div>
+            <TabList selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as any)} appearance="subtle-circular">
               <Tab icon={<Eye24Regular />} value="preview">Preview</Tab>
               <Tab icon={<Edit24Regular />} value="edit">Edit HTML</Tab>
               <Tab icon={<Code24Regular />} value="raw">Raw source</Tab>
@@ -99,19 +264,31 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
               <div className={s.preview} dangerouslySetInnerHTML={{ __html: active.html }} />
             )}
             {tab === 'edit' && (
-              <Textarea value={active.html} className={s.raw} onChange={(_, d) => update(active.id, { html: d.value })} resize="vertical" rows={18} />
+              <Textarea
+                value={active.html}
+                className={s.raw}
+                onChange={(_, d) => update(active.id, { html: d.value })}
+                resize="vertical"
+                rows={18}
+              />
             )}
             {tab === 'raw' && (
               <Textarea value={active.rawHtml} className={s.raw} readOnly resize="vertical" rows={18} />
             )}
             {active.warnings.length > 0 && (
-              <div>
-                <Text weight="semibold">Conversion warnings</Text>
-                <ul>{active.warnings.map((w, i) => <li key={i}><Text size={200}>{w}</Text></li>)}</ul>
+              <div className={s.warningBox}>
+                <Text weight="semibold" block style={{ marginBottom: 4 }}>Conversion warnings</Text>
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {active.warnings.map((w, i) => (
+                    <li key={i}><Text size={200}>{w}</Text></li>
+                  ))}
+                </ul>
               </div>
             )}
             {active.loadStatus === 'error' && active.loadError && (
-              <Text style={{ color: tokens.colorPaletteRedForeground1 }}>Error: {active.loadError}</Text>
+              <Text style={{ color: tokens.colorPaletteRedForeground1 }}>
+                Error: {active.loadError}
+              </Text>
             )}
           </div>
         )}
@@ -122,19 +299,13 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
 
 function StatusBadge({ status }: { status: ProcessedArticle['loadStatus'] }) {
   switch (status) {
-    case 'success': return <Badge color="success" size="small">Loaded</Badge>;
-    case 'error': return <Badge color="danger" size="small">Failed</Badge>;
-    case 'loading': return <Badge color="brand" size="small">…</Badge>;
-    default: return <Badge color="informative" size="small">Pending</Badge>;
+    case 'success':
+      return <Badge color="success" appearance="tint" icon={<CheckmarkCircle20Filled />}>Loaded</Badge>;
+    case 'error':
+      return <Badge color="danger" appearance="tint" icon={<DismissCircle20Filled />}>Failed</Badge>;
+    case 'loading':
+      return <Badge color="brand" appearance="tint">Loading…</Badge>;
+    default:
+      return <Badge color="informative" appearance="tint">Pending</Badge>;
   }
-}
-
-// Local Field — Fluent's Field needs a label prop and we want compact usage
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <Text weight="semibold" size={200} block style={{ marginBottom: 4 }}>{label}</Text>
-      {children}
-    </div>
-  );
 }
