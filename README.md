@@ -24,7 +24,9 @@ Microsoft app, not a stock Power Apps form.
 3. **Review** — Fluent UI list with checkboxes; per-article tabs for
    **Preview**, **Edit HTML**, and **Raw source**. Title is editable. The
    Edit tab has a **Suggest edits with Copilot** button that proposes
-   structure and clarity improvements you can Accept or Decline.
+   structure and clarity improvements you can Accept or Decline. Click
+   **Scan for overlap** to compare candidates against your existing D365
+   KB and flag likely duplicates.
 4. **Load** — creates `knowledgearticle` rows for selected items, streaming
    progress in the UI.
 5. **Report** — a formatted `KB-Loader-Report-YYYYMMDD-hhmmss.xlsx` is
@@ -197,6 +199,26 @@ the Progress tab. When a load finishes, a formatted Excel report
 the history travels with the source content — no separate list, no extra
 SharePoint plumbing. You can also click **Save Excel report** at any time to
 regenerate it.
+
+## Overlap detection (existing KB scan)
+
+The Review step has a **Scan for overlap** toolbar button. It compares each
+candidate (title + first body chunk) against your existing
+`knowledgearticle` rows and flags likely duplicates:
+
+- Each flagged candidate gets an orange **N overlap(s)** badge in the list.
+- The detail pane shows the top 3 matches with a relative score, the
+  existing title, an excerpt, a link into D365, and human-readable reasons
+  (e.g. "Title similarity 83%", "Shared keywords: vpn, mfa, setup").
+- Articles with a top match ≥ 80% are **auto-deselected** so duplicates
+  don't slip into the load by accident — you can re-check them if you
+  intend to publish anyway.
+
+Mock mode scores against a small built-in sample of existing KB articles
+so the feature is fully exercisable offline. The real service pulls
+candidates from Dataverse via `ListRecords` on `knowledgearticle` (filtered
+to published / draft) and runs the same client-side scorer (`overlapDetect.ts`)
+— swap that call for Dataverse Relevance Search if your KB is very large.
 
 ## Copilot suggestions (article review)
 

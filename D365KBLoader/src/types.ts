@@ -26,6 +26,8 @@ export interface ProcessedArticle {
   knowledgeArticleId?: string;
   loadStatus: 'pending' | 'loading' | 'success' | 'error';
   loadError?: string;
+  /** Possible overlap with existing D365 KB articles (set after a scan). */
+  overlaps?: OverlapMatch[];
 }
 
 export interface KbConfig {
@@ -43,6 +45,26 @@ export interface ArticleSuggestion {
   summary: string;
   /** Bullet list of specific changes the suggestion makes. */
   changes: string[];
+}
+
+/** An existing knowledgearticle row used for overlap detection. */
+export interface ExistingKbArticle {
+  id: string;
+  title: string;
+  /** Short plain-text excerpt for the overlap UI. */
+  excerpt?: string;
+  /** Optional deep-link into D365. */
+  url?: string;
+  modifiedOn?: string;
+}
+
+/** One match between a candidate import and an existing KB article. */
+export interface OverlapMatch {
+  article: ExistingKbArticle;
+  /** Similarity score between 0 and 1. */
+  score: number;
+  /** Human-readable reasons (e.g., title token overlap, shared keywords). */
+  reasons: string[];
 }
 
 /** Result of writing the per-run Excel report. */

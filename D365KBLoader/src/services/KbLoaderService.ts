@@ -1,4 +1,4 @@
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, OverlapMatch } from '../types';
 
 /**
  * Service contract. The MockService implementation lets the UI run locally
@@ -20,4 +20,9 @@ export interface KbLoaderService {
   writeReport(config: KbConfig, log: LogEntry[]): Promise<ReportResult>;
   /** Generate AI-assisted edit suggestions for a single article (Copilot review). */
   suggestEdits(article: ProcessedArticle): Promise<ArticleSuggestion>;
+  /**
+   * Compare each candidate against the existing D365 knowledgebase and return
+   * possible overlaps, keyed by the candidate article id.
+   */
+  findOverlaps(articles: ProcessedArticle[]): Promise<Record<string, OverlapMatch[]>>;
 }

@@ -1,8 +1,9 @@
 import type { KbLoaderService } from './KbLoaderService';
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch } from '../types';
 import { classify } from '../processing/pipeline';
 import { buildReportWorkbook } from '../reporting/report';
 import { buildMockSuggestion } from './copilotSuggest';
+import { scoreOverlaps } from './overlapDetect';
 
 /**
  * Real implementation that uses the generated Power Apps Code App SDK clients.
@@ -129,6 +130,26 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
     // the button is always functional. Swap this body for the real connector
     // call when the connection is provisioned.
     return buildMockSuggestion(article);
+  }
+
+  async findOverlaps(articles: ProcessedArticle[]): Promise<Record<string, OverlapMatch[]>> {
+    // Fetch a candidate pool of published / draft knowledgearticles from
+    // Dataverse and score them client-side. For very large KBs you'd push
+    // server-side relevance search instead (Dataverse `relevance search` or
+    // a Cognitive Search index), but for typical KBs a few hundred rows is fine.
+    const dv = await loadDataverseClient();
+    const res = await dv.knowledgearticle.list?.({
+      $select: 'knowledgearticleid,title,description,modifiedon',
+      $top: 500,
+      $filter: "statuscode eq 3 or statecode eq 0", // published or draft
+    });
+    const candidates: ExistingKbArticle[] = (res?.value ?? []).map((r: any) => ({
+      id: r.knowledgearticleid,
+      title: r.title ?? '',
+      excerpt: (r.description ?? '').toString().slice(0, 600),
+      modifiedOn: r.modifiedon,
+    }));
+    return scoreOverlaps(articles, candidates);
   }
 }
 

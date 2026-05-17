@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
 import {
   Card, Text, Button, Checkbox, makeStyles, tokens, mergeClasses,
-  Tab, TabList, Input, Textarea, Badge, Tooltip, Spinner, Divider
+  Tab, TabList, Input, Textarea, Badge, Tooltip, Spinner, Divider,
+  MessageBar, MessageBarBody, MessageBarTitle,
 } from '@fluentui/react-components';
 import {
   Edit24Regular, Eye24Regular, Code24Regular, DocumentText24Regular,
   Warning20Filled, CloudArrowUp20Filled, CheckmarkCircle20Filled, DismissCircle20Filled,
-  Sparkle20Filled,
+  Sparkle20Filled, BranchCompare20Regular, Open16Regular,
 } from '@fluentui/react-icons';
-import type { ProcessedArticle, ArticleSuggestion } from '../types';
+import type { ProcessedArticle, ArticleSuggestion, OverlapMatch } from '../types';
 import { getService } from '../services';
 import { SuggestEditsDialog } from './SuggestEditsDialog';
 
@@ -198,6 +199,11 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
   const [copilotError, setCopilotError] = useState<string | undefined>();
   const [suggestion, setSuggestion] = useState<ArticleSuggestion | undefined>();
 
+  // Overlap-scan state
+  const [overlapScanning, setOverlapScanning] = useState(false);
+  const [overlapError, setOverlapError] = useState<string | undefined>();
+  const [overlapBanner, setOverlapBanner] = useState<string | undefined>();
+
   const allSelected = articles.length > 0 && articles.every(a => a.selected);
   const someSelected = articles.some(a => a.selected) && !allSelected;
   const selectedCount = articles.filter(a => a.selected).length;
@@ -234,6 +240,43 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
     setSuggestion(undefined);
   }
 
+  async function scanForOverlap() {
+    setOverlapScanning(true);
+    setOverlapError(undefined);
+    setOverlapBanner(undefined);
+    try {
+      const map = await svc.findOverlaps(articles);
+      let autoDeselected = 0;
+      let flagged = 0;
+      const next = articles.map(a => {
+        const overlaps = map[a.id] ?? [];
+        if (overlaps.length === 0) return { ...a, overlaps: [] };
+        flagged++;
+        const topScore = overlaps[0].score;
+        // Auto-deselect high-confidence duplicates so the user has to opt-in
+        const shouldAutoDeselect = topScore >= 0.8 && a.selected;
+        if (shouldAutoDeselect) autoDeselected++;
+        return {
+          ...a,
+          overlaps,
+          selected: shouldAutoDeselect ? false : a.selected,
+        };
+      });
+      onChange(next);
+      if (flagged === 0) {
+        setOverlapBanner('No likely duplicates found in the existing knowledgebase.');
+      } else if (autoDeselected > 0) {
+        setOverlapBanner(`${flagged} article${flagged === 1 ? '' : 's'} flagged for potential overlap. ${autoDeselected} high-confidence duplicate${autoDeselected === 1 ? '' : 's'} auto-deselected.`);
+      } else {
+        setOverlapBanner(`${flagged} article${flagged === 1 ? '' : 's'} flagged for potential overlap — review before loading.`);
+      }
+    } catch (e: any) {
+      setOverlapError(String(e?.message ?? e));
+    } finally {
+      setOverlapScanning(false);
+    }
+  }
+
   return (
     <Card className={s.card}>
       <div className={s.accent} />
@@ -253,6 +296,16 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
             onChange={toggleAll}
           />
           <Button
+            appearance="secondary"
+            size="large"
+            icon={overlapScanning ? <Spinner size="tiny" /> : <BranchCompare20Regular />}
+            onClick={scanForOverlap}
+            disabled={overlapScanning || articles.length === 0}
+            title="Compare these candidates against existing D365 KB articles"
+          >
+            {overlapScanning ? 'Scanning…' : 'Scan for overlap'}
+          </Button>
+          <Button
             appearance="primary"
             size="large"
             icon={loading ? <Spinner size="tiny" /> : <CloudArrowUp20Filled />}
@@ -263,6 +316,22 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
           </Button>
         </div>
       </div>
+      {(overlapBanner || overlapError) && (
+        <div style={{ padding: `0 ${tokens.spacingHorizontalXL} ${tokens.spacingVerticalM}` }}>
+          {overlapError ? (
+            <MessageBar intent="error">
+              <MessageBarBody>
+                <MessageBarTitle>Overlap scan failed</MessageBarTitle>
+                {overlapError}
+              </MessageBarBody>
+            </MessageBar>
+          ) : (
+            <MessageBar intent={overlapBanner!.startsWith('No likely') ? 'success' : 'warning'}>
+              <MessageBarBody>{overlapBanner}</MessageBarBody>
+            </MessageBar>
+          )}
+        </div>
+      )}
       <Divider />
       <div className={s.wrap}>
         <div className={s.list}>
@@ -290,6 +359,16 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
                   </Text>
                 </div>
                 <div className={s.badges}>
+                  {a.overlaps && a.overlaps.length > 0 && (
+                    <Tooltip
+                      content={`Top match: ${a.overlaps[0].article.title} (${Math.round(a.overlaps[0].score * 100)}%)`}
+                      relationship="description"
+                    >
+                      <Badge color="warning" appearance="tint" size="small">
+                        {a.overlaps.length} overlap{a.overlaps.length === 1 ? '' : 's'}
+                      </Badge>
+                    </Tooltip>
+                  )}
                   {a.warnings.length > 0 && (
                     <Tooltip content={a.warnings.join('\n')} relationship="description">
                       <Warning20Filled style={{ color: tokens.colorPaletteYellowForeground1 }} />
@@ -346,6 +425,9 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
             {tab === 'raw' && (
               <Textarea value={active.rawHtml} className={s.raw} readOnly resize="vertical" rows={18} />
             )}
+            {active.overlaps && active.overlaps.length > 0 && (
+              <OverlapSection overlaps={active.overlaps} />
+            )}
             {active.warnings.length > 0 && (
               <div className={s.warningBox}>
                 <Text weight="semibold" block style={{ marginBottom: 4 }}>Conversion warnings</Text>
@@ -390,4 +472,126 @@ function StatusBadge({ status }: { status: ProcessedArticle['loadStatus'] }) {
     default:
       return <Badge color="informative" appearance="tint">Pending</Badge>;
   }
+}
+
+const useOverlapStyles = makeStyles({
+  wrap: {
+    borderTopWidth: '1px',
+    borderRightWidth: '1px',
+    borderBottomWidth: '1px',
+    borderLeftWidth: '1px',
+    borderTopStyle: 'solid',
+    borderRightStyle: 'solid',
+    borderBottomStyle: 'solid',
+    borderLeftStyle: 'solid',
+    borderTopColor: tokens.colorPaletteDarkOrangeBorder1,
+    borderRightColor: tokens.colorPaletteDarkOrangeBorder1,
+    borderBottomColor: tokens.colorPaletteDarkOrangeBorder1,
+    borderLeftColor: tokens.colorPaletteDarkOrangeBorder1,
+    backgroundColor: tokens.colorPaletteDarkOrangeBackground1,
+    borderRadius: tokens.borderRadiusLarge,
+    padding: tokens.spacingHorizontalL,
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalS,
+    marginBottom: tokens.spacingVerticalS,
+  },
+  item: {
+    display: 'flex',
+    gap: tokens.spacingHorizontalM,
+    padding: `${tokens.spacingVerticalS} 0`,
+    borderTopWidth: '0',
+    borderRightWidth: '0',
+    borderBottomWidth: '1px',
+    borderLeftWidth: '0',
+    borderBottomStyle: 'solid',
+    borderBottomColor: tokens.colorPaletteDarkOrangeBorder1,
+    ':last-child': { borderBottomWidth: '0' },
+  },
+  score: {
+    flexShrink: 0,
+    width: '64px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '2px',
+  },
+  scoreBar: {
+    width: '100%',
+    height: '6px',
+    borderRadius: '3px',
+    backgroundColor: tokens.colorNeutralBackground4,
+    overflow: 'hidden',
+  },
+  scoreFill: {
+    height: '100%',
+    backgroundColor: tokens.colorPaletteDarkOrangeForeground1,
+  },
+  scoreLabel: {
+    fontSize: tokens.fontSizeBase200,
+    fontWeight: tokens.fontWeightSemibold,
+    color: tokens.colorPaletteDarkOrangeForeground1,
+  },
+  body: { flex: 1, minWidth: 0 },
+  reasons: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: tokens.spacingHorizontalXS,
+    marginTop: tokens.spacingVerticalXS,
+  },
+});
+
+function OverlapSection({ overlaps }: { overlaps: OverlapMatch[] }) {
+  const o = useOverlapStyles();
+  return (
+    <div className={o.wrap}>
+      <div className={o.header}>
+        <BranchCompare20Regular style={{ color: tokens.colorPaletteDarkOrangeForeground1 }} />
+        <Text weight="semibold">
+          Possible overlap with existing KB ({overlaps.length})
+        </Text>
+      </div>
+      <Text size={200} block style={{ color: tokens.colorNeutralForeground2, marginBottom: tokens.spacingVerticalS }}>
+        Consider unchecking this article if the matches below already cover the topic, or update the existing article instead of creating a duplicate.
+      </Text>
+      {overlaps.map(m => (
+        <div key={m.article.id} className={o.item}>
+          <div className={o.score}>
+            <div className={o.scoreBar}>
+              <div className={o.scoreFill} style={{ width: `${Math.round(m.score * 100)}%` }} />
+            </div>
+            <span className={o.scoreLabel}>{Math.round(m.score * 100)}%</span>
+          </div>
+          <div className={o.body}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spacingHorizontalXS }}>
+              <Text weight="semibold">{m.article.title}</Text>
+              {m.article.url && (
+                <a href={m.article.url} target="_blank" rel="noreferrer" title="Open in D365"
+                   style={{ display: 'inline-flex', color: tokens.colorBrandForeground1 }}>
+                  <Open16Regular />
+                </a>
+              )}
+              {m.article.modifiedOn && (
+                <Text size={100} style={{ color: tokens.colorNeutralForeground3 }}>
+                  · modified {new Date(m.article.modifiedOn).toLocaleDateString()}
+                </Text>
+              )}
+            </div>
+            {m.article.excerpt && (
+              <Text size={200} block style={{ color: tokens.colorNeutralForeground2 }}>
+                {m.article.excerpt}
+              </Text>
+            )}
+            <div className={o.reasons}>
+              {m.reasons.map((r, i) => (
+                <Badge key={i} appearance="outline" color="warning" size="small">{r}</Badge>
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }

@@ -1,7 +1,8 @@
 import type { KbLoaderService } from './KbLoaderService';
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch } from '../types';
 import { buildReportWorkbook, downloadBlob } from '../reporting/report';
 import { buildMockSuggestion } from './copilotSuggest';
+import { scoreOverlaps } from './overlapDetect';
 
 const SAMPLE_DOCX_HTML = `
   <h1>Sample KB Article (mock)</h1>
@@ -99,7 +100,51 @@ export class MockKbLoaderService implements KbLoaderService {
     await delay(800); // pretend we called a model
     return buildMockSuggestion(article);
   }
+
+  async findOverlaps(articles: ProcessedArticle[]): Promise<Record<string, OverlapMatch[]>> {
+    await delay(500); // pretend we queried Dataverse
+    return scoreOverlaps(articles, MOCK_EXISTING_KB);
+  }
 }
+
+const MOCK_EXISTING_KB: ExistingKbArticle[] = [
+  {
+    id: 'ka-1001', title: 'How to reset your Windows password',
+    excerpt: 'Step-by-step guide for resetting your domain account password via the self-service portal. Covers forgotten passwords, account lockouts, and MFA reset.',
+    url: 'https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=ka-1001',
+    modifiedOn: '2026-02-14',
+  },
+  {
+    id: 'ka-1002', title: 'VPN setup for remote workers (Windows + macOS)',
+    excerpt: 'Configure the corporate VPN client, connect, and troubleshoot common authentication errors. Includes split-tunnel and MFA setup.',
+    url: 'https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=ka-1002',
+    modifiedOn: '2026-04-02',
+  },
+  {
+    id: 'ka-1003', title: 'Connect to corporate WiFi (CONTOSO-CORP)',
+    excerpt: 'Join the CONTOSO-CORP wireless network with your work account. Covers certificate-based auth and BYOD enrollment.',
+    url: 'https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=ka-1003',
+    modifiedOn: '2025-11-20',
+  },
+  {
+    id: 'ka-1004', title: 'Printer troubleshooting: paper jams and offline status',
+    excerpt: 'Diagnose and clear paper jams, reset printer queues, and resolve offline / driver issues on Windows.',
+    url: 'https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=ka-1004',
+    modifiedOn: '2026-01-12',
+  },
+  {
+    id: 'ka-1005', title: 'Onboarding checklist for new employees',
+    excerpt: 'Day-one checklist: laptop, badge, account setup, mandatory training, and benefits enrollment.',
+    url: 'https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=ka-1005',
+    modifiedOn: '2026-03-30',
+  },
+  {
+    id: 'ka-1006', title: 'Email outage runbook',
+    excerpt: 'Tier-1 response steps when corporate email is unreachable. Includes Exchange health checks and customer communication template.',
+    url: 'https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=ka-1006',
+    modifiedOn: '2025-10-08',
+  },
+];
 
 function delay(ms: number) { return new Promise(res => setTimeout(res, ms)); }
 
