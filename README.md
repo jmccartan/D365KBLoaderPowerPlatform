@@ -62,6 +62,24 @@ sample files end-to-end without touching SharePoint or Dataverse.
 
 ## Wire up real connectors
 
+### Prerequisites
+
+- **Power Platform CLI (`pac`)** installed locally. Install via:
+  ```powershell
+  dotnet tool install --global Microsoft.PowerApps.CLI.Tool
+  ```
+  Or use the [winget](https://learn.microsoft.com/power-platform/developer/cli/introduction#install-power-platform-cli) /
+  MSI installer documented by Microsoft.
+- A signed-in account with **Power Platform admin** (or equivalent
+  environment-maker) privileges in the target environment. `pac code init` and
+  `pac code push` both write into Dataverse, and `pac code add-data-source`
+  registers connector references — these all require admin-level permissions.
+- A Dataverse environment that includes the **Dynamics 365 Customer Service**
+  (or another Knowledge-enabled) solution, so the `knowledgearticle` table
+  exists.
+
+### Steps
+
 1. **Authenticate** to the target environment:
 
    ```powershell
