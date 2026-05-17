@@ -1,13 +1,16 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Card, Text, Button, Checkbox, makeStyles, tokens, mergeClasses,
   Tab, TabList, Input, Textarea, Badge, Tooltip, Spinner, Divider
 } from '@fluentui/react-components';
 import {
   Edit24Regular, Eye24Regular, Code24Regular, DocumentText24Regular,
-  Warning20Filled, CloudArrowUp20Filled, CheckmarkCircle20Filled, DismissCircle20Filled
+  Warning20Filled, CloudArrowUp20Filled, CheckmarkCircle20Filled, DismissCircle20Filled,
+  Sparkle20Filled,
 } from '@fluentui/react-icons';
-import type { ProcessedArticle } from '../types';
+import type { ProcessedArticle, ArticleSuggestion } from '../types';
+import { getService } from '../services';
+import { SuggestEditsDialog } from './SuggestEditsDialog';
 
 const useStyles = makeStyles({
   card: {
@@ -151,6 +154,28 @@ const useStyles = makeStyles({
     textAlign: 'center',
     color: tokens.colorNeutralForeground3,
   },
+  copilotBar: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: tokens.spacingHorizontalM,
+    marginTop: tokens.spacingVerticalS,
+    padding: tokens.spacingHorizontalM,
+    borderRadius: tokens.borderRadiusLarge,
+    background: 'linear-gradient(135deg, rgba(18,120,210,0.08) 0%, rgba(79,157,232,0.12) 100%)',
+    borderTopWidth: '1px',
+    borderRightWidth: '1px',
+    borderBottomWidth: '1px',
+    borderLeftWidth: '1px',
+    borderTopStyle: 'solid',
+    borderRightStyle: 'solid',
+    borderBottomStyle: 'solid',
+    borderLeftStyle: 'solid',
+    borderTopColor: tokens.colorBrandStroke2,
+    borderRightColor: tokens.colorBrandStroke2,
+    borderBottomColor: tokens.colorBrandStroke2,
+    borderLeftColor: tokens.colorBrandStroke2,
+  },
 });
 
 export interface ReviewPanelProps {
@@ -162,9 +187,16 @@ export interface ReviewPanelProps {
 
 export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanelProps) {
   const s = useStyles();
+  const svc = useMemo(() => getService(), []);
   const [activeId, setActiveId] = useState<string>(articles[0]?.id ?? '');
   const [tab, setTab] = useState<'preview' | 'raw' | 'edit'>('preview');
   const active = articles.find(a => a.id === activeId) ?? articles[0];
+
+  // Copilot suggestion state
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [copilotLoading, setCopilotLoading] = useState(false);
+  const [copilotError, setCopilotError] = useState<string | undefined>();
+  const [suggestion, setSuggestion] = useState<ArticleSuggestion | undefined>();
 
   const allSelected = articles.length > 0 && articles.every(a => a.selected);
   const someSelected = articles.some(a => a.selected) && !allSelected;
@@ -177,6 +209,30 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
     const next = !allSelected;
     onChange(articles.map(a => ({ ...a, selected: next })));
   };
+
+  async function requestSuggestions(target: ProcessedArticle) {
+    setCopilotOpen(true);
+    setCopilotLoading(true);
+    setCopilotError(undefined);
+    setSuggestion(undefined);
+    try {
+      const result = await svc.suggestEdits(target);
+      setSuggestion(result);
+    } catch (e: any) {
+      setCopilotError(String(e?.message ?? e));
+    } finally {
+      setCopilotLoading(false);
+    }
+  }
+
+  function acceptSuggestion(target: ProcessedArticle, sugg: ArticleSuggestion) {
+    update(target.id, {
+      html: sugg.html,
+      ...(sugg.title ? { title: sugg.title } : {}),
+    });
+    setCopilotOpen(false);
+    setSuggestion(undefined);
+  }
 
   return (
     <Card className={s.card}>
@@ -264,13 +320,28 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
               <div className={s.preview} dangerouslySetInnerHTML={{ __html: active.html }} />
             )}
             {tab === 'edit' && (
-              <Textarea
-                value={active.html}
-                className={s.raw}
-                onChange={(_, d) => update(active.id, { html: d.value })}
-                resize="vertical"
-                rows={18}
-              />
+              <>
+                <Textarea
+                  value={active.html}
+                  className={s.raw}
+                  onChange={(_, d) => update(active.id, { html: d.value })}
+                  resize="vertical"
+                  rows={18}
+                />
+                <div className={s.copilotBar}>
+                  <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+                    Let Copilot review this article and propose structure and clarity improvements.
+                  </Text>
+                  <Button
+                    appearance="primary"
+                    icon={<Sparkle20Filled />}
+                    onClick={() => requestSuggestions(active)}
+                    disabled={copilotLoading}
+                  >
+                    Suggest edits with Copilot
+                  </Button>
+                </div>
+              </>
             )}
             {tab === 'raw' && (
               <Textarea value={active.rawHtml} className={s.raw} readOnly resize="vertical" rows={18} />
@@ -293,6 +364,17 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
           </div>
         )}
       </div>
+
+      <SuggestEditsDialog
+        open={copilotOpen}
+        loading={copilotLoading}
+        error={copilotError}
+        suggestion={suggestion}
+        currentTitle={active?.title ?? ''}
+        onAccept={sugg => active && acceptSuggestion(active, sugg)}
+        onDecline={() => { setCopilotOpen(false); setSuggestion(undefined); }}
+        onRegenerate={() => active && requestSuggestions(active)}
+      />
     </Card>
   );
 }

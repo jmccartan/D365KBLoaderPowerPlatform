@@ -1,7 +1,8 @@
 import type { KbLoaderService } from './KbLoaderService';
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion } from '../types';
 import { classify } from '../processing/pipeline';
 import { buildReportWorkbook } from '../reporting/report';
+import { buildMockSuggestion } from './copilotSuggest';
 
 /**
  * Real implementation that uses the generated Power Apps Code App SDK clients.
@@ -114,6 +115,20 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
     });
     const location = `${config.folderPath || '/'}/${fileName}`.replace(/\/+/g, '/');
     return { fileName, location };
+  }
+
+  async suggestEdits(article: ProcessedArticle): Promise<ArticleSuggestion> {
+    // Preferred wiring is one of:
+    //   1) An Azure OpenAI custom connector — call its "Chat completions" action
+    //      with a system prompt like "You are a KB editor. Improve clarity,
+    //      structure, and tone. Return JSON: { html, title?, summary, changes[] }."
+    //   2) A Dataverse AI Prompt action (Power Platform "Prompts" feature) bound
+    //      to an existing prompt template, executed via the Dataverse connector's
+    //      ExecuteAction.
+    // For now, fall back to the same deterministic heuristics the mock uses so
+    // the button is always functional. Swap this body for the real connector
+    // call when the connection is provisioned.
+    return buildMockSuggestion(article);
   }
 }
 

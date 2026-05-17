@@ -22,7 +22,9 @@ Microsoft app, not a stock Power Apps form.
    skipped), converts DOCX to HTML with `mammoth`, sanitizes with
    `sanitize-html`, derives a title.
 3. **Review** — Fluent UI list with checkboxes; per-article tabs for
-   **Preview**, **Edit HTML**, and **Raw source**. Title is editable.
+   **Preview**, **Edit HTML**, and **Raw source**. Title is editable. The
+   Edit tab has a **Suggest edits with Copilot** button that proposes
+   structure and clarity improvements you can Accept or Decline.
 4. **Load** — creates `knowledgearticle` rows for selected items, streaming
    progress in the UI.
 5. **Report** — a formatted `KB-Loader-Report-YYYYMMDD-hhmmss.xlsx` is
@@ -195,6 +197,26 @@ the Progress tab. When a load finishes, a formatted Excel report
 the history travels with the source content — no separate list, no extra
 SharePoint plumbing. You can also click **Save Excel report** at any time to
 regenerate it.
+
+## Copilot suggestions (article review)
+
+The Edit tab on each article includes a **Suggest edits with Copilot** button.
+In mock mode this runs a deterministic heuristic (adds missing `<h1>`, inserts
+a Summary callout, converts "Step N" lines into ordered lists, wraps loose
+text in `<p>`, tightens the title, etc.) and returns a summary + change list
+in a review dialog where you Accept or Decline.
+
+For a real LLM-backed implementation, swap the body of `suggestEdits` in
+`PowerPlatformKbLoaderService.ts` to call either:
+
+- An **Azure OpenAI custom connector** (chat completions action). Use a
+  system prompt like *"You are a KB editor. Improve clarity, structure, and
+  tone. Return JSON: { html, title?, summary, changes[] }"* and parse the
+  response into an `ArticleSuggestion`.
+- A **Dataverse AI Prompt** (Power Platform "Prompts" feature) executed via
+  the Dataverse connector's `ExecuteAction`.
+
+The dialog UI doesn't need to change — only the service method.
 
 ## Why a Code App (not classic canvas)?
 

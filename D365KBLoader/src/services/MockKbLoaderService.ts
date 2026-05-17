@@ -1,6 +1,7 @@
 import type { KbLoaderService } from './KbLoaderService';
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion } from '../types';
 import { buildReportWorkbook, downloadBlob } from '../reporting/report';
+import { buildMockSuggestion } from './copilotSuggest';
 
 const SAMPLE_DOCX_HTML = `
   <h1>Sample KB Article (mock)</h1>
@@ -92,6 +93,11 @@ export class MockKbLoaderService implements KbLoaderService {
     // No SharePoint connector available locally — give it to the user as a download.
     downloadBlob(buffer, fileName);
     return { fileName, location: 'browser download', downloaded: true };
+  }
+
+  async suggestEdits(article: ProcessedArticle): Promise<ArticleSuggestion> {
+    await delay(800); // pretend we called a model
+    return buildMockSuggestion(article);
   }
 }
 

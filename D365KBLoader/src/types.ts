@@ -33,6 +33,18 @@ export interface KbConfig {
   folderPath: string;
 }
 
+/** A Copilot-generated suggestion for editing a KB article. */
+export interface ArticleSuggestion {
+  /** Proposed sanitized HTML body. */
+  html: string;
+  /** Optional revised title — undefined means keep the existing one. */
+  title?: string;
+  /** Short, human-readable summary of what changed and why. */
+  summary: string;
+  /** Bullet list of specific changes the suggestion makes. */
+  changes: string[];
+}
+
 /** Result of writing the per-run Excel report. */
 export interface ReportResult {
   fileName: string;

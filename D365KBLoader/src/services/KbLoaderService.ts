@@ -1,4 +1,4 @@
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion } from '../types';
 
 /**
  * Service contract. The MockService implementation lets the UI run locally
@@ -18,4 +18,6 @@ export interface KbLoaderService {
   createKnowledgeArticle(article: ProcessedArticle): Promise<string>;
   /** Persist a formatted Excel report of the run to the source folder (or download in mock mode). */
   writeReport(config: KbConfig, log: LogEntry[]): Promise<ReportResult>;
+  /** Generate AI-assisted edit suggestions for a single article (Copilot review). */
+  suggestEdits(article: ProcessedArticle): Promise<ArticleSuggestion>;
 }
