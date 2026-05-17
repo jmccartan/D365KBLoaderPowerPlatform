@@ -2,20 +2,29 @@
 
 A Power Apps **Code App** that reads HTML and Word documents from a SharePoint
 folder, lets you preview / tweak each one, and pushes them into the Dynamics
-365 Knowledgebase (`knowledgearticle` table). Every action is written to a
-SharePoint list so you have a durable audit trail.
+365 Knowledgebase (`knowledgearticle` table). Every run produces a formatted
+Excel report saved back to the source folder, so the audit trail travels with
+the content — no separate list, no extra SharePoint plumbing.
+
+A custom Fluent UI v9 blue theme, hero header, numbered stepper, and
+drill-down SharePoint browsers make the experience feel like a first-class
+Microsoft app, not a stock Power Apps form.
 
 ## What it does
 
-1. **Configure** — point the app at a SharePoint site + folder + log list.
+1. **Configure** — pick a SharePoint site and folder from a **drill-down
+   browser** (or paste a URL). No more copy/pasting paths.
 2. **Scan & pre-process** — enumerates files, classifies (`.docx`, `.html/.htm`,
    skipped), converts DOCX to HTML with `mammoth`, sanitizes with
    `sanitize-html`, derives a title.
 3. **Review** — Fluent UI list with checkboxes; per-article tabs for
    **Preview**, **Edit HTML**, and **Raw source**. Title is editable.
 4. **Load** — creates `knowledgearticle` rows for selected items, streaming
-   progress and writing to the log list.
-5. **History** — read the SharePoint log list any time from the Progress tab.
+   progress in the UI.
+5. **Report** — a formatted `KB-Loader-Report-YYYYMMDD-hhmmss.xlsx` is
+   auto-saved to the **same folder you scanned** (Summary sheet +
+   color-coded, filterable Activity Log). Click **Save Excel report** any
+   time to regenerate.
 
 ## Stack
 
@@ -30,8 +39,10 @@ SharePoint list so you have a durable audit trail.
 ```
 D365KBLoader/                Code App project
   src/
-    App.tsx                  Top-level wizard
-    components/              ConfigPanel, ReviewPanel, ProgressPanel
+    App.tsx                  Top-level wizard, hero header, stepper
+    theme.ts                 Custom blue Fluent brand ramp
+    components/              ConfigPanel, ReviewPanel, ProgressPanel,
+                             Stepper, BrowseSiteDialog, BrowseFolderDialog
     processing/pipeline.ts   DOCX/HTML → sanitized HTML
     reporting/report.ts      Excel run report (exceljs)
     services/                KbLoaderService interface + Mock + PowerPlatform impl
@@ -74,9 +85,18 @@ sample files end-to-end without touching SharePoint or Dataverse.
 4. **Wire the generated clients** into
    `src/services/PowerPlatformKbLoaderService.ts` — replace the
    `loadSharePointClient` and `loadDataverseClient` stubs with the actual
-   imports the CLI generated. The TODO comments mark the spots.
+   imports the CLI generated. The TODO comments mark the spots. The real
+   service uses these SharePoint connector actions: `GetAllSites` (site
+   browser), `GetFolderItemsByPath` (folder browser), `GetFolderFilesByPath`
+   (scan), `GetFileContent` (download), `CreateFile` (upload the run report).
 
-5. **Build & push**:
+5. **Switch to real mode** — in `.env.local`:
+
+   ```
+   VITE_USE_REAL_CONNECTORS=true
+   ```
+
+6. **Build & push**:
 
    ```powershell
    npm run build
@@ -84,6 +104,9 @@ sample files end-to-end without touching SharePoint or Dataverse.
    ```
 
    The CLI prints the published app URL.
+
+   > **Note:** there is no SharePoint list to create. Per-run reports are
+   > written directly to the source folder as `.xlsx` files.
 
 ## Field mapping (knowledgearticle)
 
