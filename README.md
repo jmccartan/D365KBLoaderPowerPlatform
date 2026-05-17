@@ -50,10 +50,13 @@ D365KBLoader/                Code App project
     App.tsx                  Top-level wizard, hero header, stepper
     theme.ts                 Custom blue Fluent brand ramp
     components/              ConfigPanel, ReviewPanel, ProgressPanel,
-                             Stepper, BrowseSiteDialog, BrowseFolderDialog
+                             Stepper, BrowseSiteDialog, BrowseFolderDialog,
+                             SuggestEditsDialog
     processing/pipeline.ts   DOCX/HTML → sanitized HTML
     reporting/report.ts      Excel run report (exceljs)
-    services/                KbLoaderService interface + Mock + PowerPlatform impl
+    services/                KbLoaderService interface + Mock + PowerPlatform impl,
+                             copilotSuggest.ts (heuristic editor),
+                             overlapDetect.ts (KB duplicate scorer)
     types.ts
 ```
 
@@ -129,9 +132,15 @@ sample files end-to-end without touching SharePoint or Dataverse.
    `src/services/PowerPlatformKbLoaderService.ts` — replace the
    `loadSharePointClient` and `loadDataverseClient` stubs with the actual
    imports the CLI generated. The TODO comments mark the spots. The real
-   service uses these SharePoint connector actions: `GetAllSites` (site
-   browser), `GetFolderItemsByPath` (folder browser), `GetFolderFilesByPath`
-   (scan), `GetFileContent` (download), `CreateFile` (upload the run report).
+   service uses these connector actions:
+   - **SharePoint** — `GetAllSites` (site browser), `GetFolderItemsByPath`
+     (folder browser), `GetFolderFilesByPath` (scan), `GetFileContent`
+     (download), `CreateFile` (upload the run report).
+   - **Dataverse** — `Create` on `knowledgearticle` (load), `ListRecords`
+     on `knowledgearticle` filtered to published / draft (overlap scan).
+   - **(Optional) Copilot suggestions** — swap `suggestEdits()` for an
+     Azure OpenAI custom connector or a Dataverse AI Prompt action (see
+     [Copilot suggestions](#copilot-suggestions-article-review) below).
 
 5. **Switch to real mode** — in `.env.local`:
 
