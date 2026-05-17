@@ -1,5 +1,5 @@
 import type { KbLoaderService } from './KbLoaderService';
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch, PowerPlatformEnvironment } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch, PowerPlatformEnvironment, KbLanguage, KbSubject, KbUser } from '../types';
 import { buildReportWorkbook, downloadBlob } from '../reporting/report';
 import { buildMockSuggestion } from './copilotSuggest';
 import { scoreOverlaps } from './overlapDetect';
@@ -48,6 +48,11 @@ const MOCK_TREE: Record<string, Record<string, string[]>> = {
 };
 
 export class MockKbLoaderService implements KbLoaderService {
+  async getCurrentUser(): Promise<KbUser> {
+    await delay(50);
+    return { id: 'mock-user', displayName: 'Mock User', email: 'mock.user@contoso.com' };
+  }
+
   async listEnvironments(): Promise<PowerPlatformEnvironment[]> {
     await delay(300);
     return MOCK_ENVIRONMENTS.map(e => ({ ...e }));
@@ -99,10 +104,32 @@ export class MockKbLoaderService implements KbLoaderService {
     return new TextEncoder().encode(SAMPLE_DOCX_HTML).buffer;
   }
 
-  async createKnowledgeArticle(article: ProcessedArticle): Promise<string> {
+  async createKnowledgeArticle(article: ProcessedArticle): Promise<{ id: string; url?: string }> {
     await delay(500);
     if (article.title.toLowerCase().includes('fail')) throw new Error('Simulated failure');
-    return `mock-ka-${Math.random().toString(36).slice(2, 10)}`;
+    const id = `mock-ka-${Math.random().toString(36).slice(2, 10)}`;
+    return { id, url: `https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=${id}` };
+  }
+
+  async updateKnowledgeArticle(existingId: string, article: ProcessedArticle): Promise<void> {
+    await delay(400);
+    if (article.title.toLowerCase().includes('fail')) throw new Error('Simulated update failure');
+  }
+
+  async findArticleByTitle(title: string): Promise<ExistingKbArticle | undefined> {
+    await delay(120);
+    const t = title.trim().toLowerCase();
+    return MOCK_EXISTING_KB.find(a => a.title.trim().toLowerCase() === t);
+  }
+
+  async listLanguages(): Promise<KbLanguage[]> {
+    await delay(80);
+    return [...MOCK_LANGUAGES];
+  }
+
+  async listSubjects(parentId?: string): Promise<KbSubject[]> {
+    await delay(120);
+    return MOCK_SUBJECTS.filter(s => (s.parentId ?? null) === (parentId ?? null));
   }
 
   async writeReport(config: KbConfig, log: LogEntry[]): Promise<ReportResult> {
@@ -153,6 +180,27 @@ const MOCK_ENVIRONMENTS: PowerPlatformEnvironment[] = [
     region: 'Europe',
     knowledgebaseStatus: 'error',
   },
+];
+
+const MOCK_LANGUAGES: KbLanguage[] = [
+  { id: '1033', code: 'en-US', displayName: 'English (United States)' },
+  { id: '2057', code: 'en-GB', displayName: 'English (United Kingdom)' },
+  { id: '1031', code: 'de-DE', displayName: 'German (Germany)' },
+  { id: '1036', code: 'fr-FR', displayName: 'French (France)' },
+  { id: '3082', code: 'es-ES', displayName: 'Spanish (Spain)' },
+  { id: '1041', code: 'ja-JP', displayName: 'Japanese' },
+];
+
+const MOCK_SUBJECTS: KbSubject[] = [
+  { id: 'sub-it',         name: 'IT',                path: '/IT',                hasChildren: true },
+  { id: 'sub-it-net',     name: 'Networking',        path: '/IT/Networking',     parentId: 'sub-it' },
+  { id: 'sub-it-acct',    name: 'Accounts & access', path: '/IT/Accounts',       parentId: 'sub-it' },
+  { id: 'sub-it-hw',      name: 'Hardware',          path: '/IT/Hardware',       parentId: 'sub-it' },
+  { id: 'sub-hr',         name: 'HR',                path: '/HR',                hasChildren: true },
+  { id: 'sub-hr-onb',     name: 'Onboarding',        path: '/HR/Onboarding',     parentId: 'sub-hr' },
+  { id: 'sub-hr-ben',     name: 'Benefits',          path: '/HR/Benefits',       parentId: 'sub-hr' },
+  { id: 'sub-support',    name: 'Customer Support',  path: '/Customer Support',  hasChildren: false },
+  { id: 'sub-field',      name: 'Field Service',     path: '/Field Service',     hasChildren: false },
 ];
 
 const MOCK_EXISTING_KB: ExistingKbArticle[] = [

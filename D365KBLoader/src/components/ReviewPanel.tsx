@@ -439,6 +439,13 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
             {tab === 'raw' && (
               <Textarea value={active.rawHtml} className={s.raw} readOnly resize="vertical" rows={18} />
             )}
+            {active.knowledgeArticleUrl && active.loadStatus === 'success' && (
+              <MessageBar intent="success">
+                <MessageBarBody>
+                  Loaded successfully. <a href={active.knowledgeArticleUrl} target="_blank" rel="noreferrer" style={{ color: tokens.colorBrandForeground1, fontWeight: tokens.fontWeightSemibold }}>Open in D365 <Open16Regular style={{ verticalAlign: 'middle' }} /></a>
+                </MessageBarBody>
+              </MessageBar>
+            )}
             {active.overlaps && active.overlaps.length > 0 && (
               <OverlapSection overlaps={active.overlaps} />
             )}
@@ -483,6 +490,8 @@ function StatusBadge({ status }: { status: ProcessedArticle['loadStatus'] }) {
       return <Badge color="danger" appearance="tint" icon={<DismissCircle20Filled />}>Failed</Badge>;
     case 'loading':
       return <Badge color="brand" appearance="tint">Loading…</Badge>;
+    case 'skipped':
+      return <Badge color="informative" appearance="tint">Skipped</Badge>;
     default:
       return <Badge color="informative" appearance="tint">Pending</Badge>;
   }

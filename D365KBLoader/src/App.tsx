@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   makeStyles, tokens, Text, MessageBar, MessageBarBody, MessageBarTitle
 } from '@fluentui/react-components';
 import { BookDatabase24Filled, Sparkle20Filled } from '@fluentui/react-icons';
 import { ConfigPanel } from './components/ConfigPanel';
+import { KbDefaultsCard } from './components/KbDefaultsCard';
 import { ReviewPanel } from './components/ReviewPanel';
 import { ProgressPanel } from './components/ProgressPanel';
 import { Stepper } from './components/Stepper';
@@ -11,7 +12,7 @@ import { EnvironmentPicker } from './components/EnvironmentPicker';
 import { processFile } from './processing/pipeline';
 import { getService } from './services';
 import { heroGradient } from './theme';
-import type { KbConfig, ProcessedArticle, LogEntry, ReportResult, PowerPlatformEnvironment } from './types';
+import type { KbConfig, ProcessedArticle, LogEntry, ReportResult, PowerPlatformEnvironment, KbUser } from './types';
 
 const useStyles = makeStyles({
   shell: {
@@ -114,6 +115,10 @@ export function App() {
   const [config, setConfig] = useState<KbConfig>({
     siteUrl: '',
     folderPath: '',
+    publishOnLoad: false,
+    duplicateAction: 'skip',
+    recursive: false,
+    incremental: false,
   });
 
   const [stage, setStage] = useState<Stage>('config');
@@ -129,9 +134,23 @@ export function App() {
   const [reportResult, setReportResult] = useState<ReportResult | undefined>();
   const [reportError, setReportError] = useState<string | undefined>();
   const [environment, setEnvironment] = useState<PowerPlatformEnvironment | undefined>();
+  const [currentUser, setCurrentUser] = useState<KbUser | undefined>();
 
   const isMock = import.meta.env?.VITE_USE_REAL_CONNECTORS !== 'true';
   const envReady = !!environment && environment.knowledgebaseStatus === 'present';
+
+  useEffect(() => {
+    svc.getCurrentUser().then(setCurrentUser).catch(() => undefined);
+  }, [svc]);
+
+  function mkLog(fileName: string, action: LogEntry['action'], status: LogEntry['status'], message: string, sourcePath?: string, knowledgeArticleId?: string): LogEntry {
+    return {
+      timestamp: new Date().toISOString(),
+      fileName, action, status, message, sourcePath, knowledgeArticleId,
+      userDisplayName: currentUser?.displayName,
+      userEmail: currentUser?.email,
+    };
+  }
 
   function appendLog(entry: LogEntry) {
     setLog(prev => [{ ...entry, id: String(prev.length + 1) }, ...prev]);
@@ -201,12 +220,37 @@ export function App() {
     for (const a of targets) {
       setArticles(prev => prev.map(p => p.id === a.id ? { ...p, loadStatus: 'loading', loadError: undefined } : p));
       try {
-        const id = await svc.createKnowledgeArticle(a);
-        setArticles(prev => prev.map(p => p.id === a.id ? { ...p, loadStatus: 'success', knowledgeArticleId: id } : p));
-        const entry = mkLog(a.source.name, 'load', 'success', `Created knowledgearticle`, a.source.path, id);
-        newEntries.push(entry);
-        appendLog(entry);
-        d++;
+        // Idempotency: check for an existing article with the same title
+        const existing = config.duplicateAction !== 'create-new'
+          ? await svc.findArticleByTitle(a.title)
+          : undefined;
+
+        if (existing && config.duplicateAction === 'skip') {
+          setArticles(prev => prev.map(p => p.id === a.id ? {
+            ...p, loadStatus: 'skipped', knowledgeArticleId: existing.id, knowledgeArticleUrl: existing.url,
+          } : p));
+          const entry = mkLog(a.source.name, 'skip', 'info', `Skipped — article "${existing.title}" already exists`, a.source.path, existing.id);
+          newEntries.push(entry);
+          appendLog(entry);
+        } else if (existing && config.duplicateAction === 'update-existing') {
+          await svc.updateKnowledgeArticle(existing.id, a);
+          setArticles(prev => prev.map(p => p.id === a.id ? {
+            ...p, loadStatus: 'success', knowledgeArticleId: existing.id, knowledgeArticleUrl: existing.url,
+          } : p));
+          const entry = mkLog(a.source.name, 'update', 'success', `Updated existing knowledgearticle "${existing.title}"`, a.source.path, existing.id);
+          newEntries.push(entry);
+          appendLog(entry);
+          d++;
+        } else {
+          const result = await svc.createKnowledgeArticle(a, config);
+          setArticles(prev => prev.map(p => p.id === a.id ? {
+            ...p, loadStatus: 'success', knowledgeArticleId: result.id, knowledgeArticleUrl: result.url,
+          } : p));
+          const entry = mkLog(a.source.name, 'load', 'success', `Created knowledgearticle`, a.source.path, result.id);
+          newEntries.push(entry);
+          appendLog(entry);
+          d++;
+        }
       } catch (e: any) {
         const msg = String(e?.message ?? e);
         setArticles(prev => prev.map(p => p.id === a.id ? { ...p, loadStatus: 'error', loadError: msg } : p));
@@ -307,7 +351,10 @@ export function App() {
         )}
 
         {stage === 'config' && (
-          <ConfigPanel config={config} onChange={setConfig} onScan={handleScan} scanning={scanning} error={scanError} />
+          <>
+            <ConfigPanel config={config} onChange={setConfig} onScan={handleScan} scanning={scanning} error={scanError} />
+            <KbDefaultsCard service={svc} config={config} onChange={setConfig} />
+          </>
         )}
         {stage === 'review' && (
           <ReviewPanel
@@ -342,8 +389,4 @@ export function App() {
       </main>
     </div>
   );
-}
-
-function mkLog(fileName: string, action: LogEntry['action'], status: LogEntry['status'], message: string, sourcePath?: string, knowledgeArticleId?: string): LogEntry {
-  return { timestamp: new Date().toISOString(), fileName, action, status, message, sourcePath, knowledgeArticleId };
 }

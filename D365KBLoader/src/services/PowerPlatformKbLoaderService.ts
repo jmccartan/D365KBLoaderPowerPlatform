@@ -1,5 +1,5 @@
 import type { KbLoaderService } from './KbLoaderService';
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch, PowerPlatformEnvironment } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch, PowerPlatformEnvironment, KbLanguage, KbSubject, KbUser } from '../types';
 import { classify } from '../processing/pipeline';
 import { buildReportWorkbook } from '../reporting/report';
 import { buildMockSuggestion } from './copilotSuggest';
@@ -28,6 +28,67 @@ import { scoreOverlaps } from './overlapDetect';
  *       Required fields: title, content (HTML), description (optional), articlepublicnumber (auto)
  */
 export class PowerPlatformKbLoaderService implements KbLoaderService {
+  async getCurrentUser(): Promise<KbUser> {
+    const dv = await loadDataverseClient();
+    const who = await dv.whoAmI?.();
+    const u = await dv.systemuser?.retrieve?.(who?.UserId, ['fullname', 'internalemailaddress']);
+    return {
+      id: who?.UserId ?? 'unknown',
+      displayName: u?.fullname ?? 'Current user',
+      email: u?.internalemailaddress,
+    };
+  }
+
+  async listLanguages(): Promise<KbLanguage[]> {
+    // GET /api/data/v9.2/RetrieveProvisionedLanguages returns LCIDs enabled for the env.
+    const dv = await loadDataverseClient();
+    const res = await dv.org?.retrieveProvisionedLanguages?.();
+    if (!res?.LocaleIds?.length) throw new Error('Could not retrieve provisioned languages from Dataverse.');
+    return res.LocaleIds.map((lcid: number) => ({
+      id: String(lcid),
+      code: LCID_TO_CODE[lcid] ?? String(lcid),
+      displayName: LCID_NAME[lcid] ?? `Locale ${lcid}`,
+    }));
+  }
+
+  async listSubjects(parentId?: string): Promise<KbSubject[]> {
+    const dv = await loadDataverseClient();
+    const res = await dv.subject?.list?.({
+      $select: 'subjectid,title,_parentsubject_value',
+      $filter: parentId ? `_parentsubject_value eq ${parentId}` : '_parentsubject_value eq null',
+      $top: 500,
+    });
+    return (res?.value ?? []).map((s: any) => ({
+      id: s.subjectid,
+      name: s.title,
+      path: s.title,
+      parentId: s._parentsubject_value ?? undefined,
+    } as KbSubject));
+  }
+
+  async findArticleByTitle(title: string): Promise<ExistingKbArticle | undefined> {
+    const dv = await loadDataverseClient();
+    const res = await dv.knowledgearticle.list?.({
+      $select: 'knowledgearticleid,title,modifiedon',
+      $filter: `title eq '${title.replace(/'/g, "''")}'`,
+      $top: 1,
+    });
+    const r = res?.value?.[0];
+    if (!r) return undefined;
+    return { id: r.knowledgearticleid, title: r.title, modifiedOn: r.modifiedon };
+  }
+
+  async updateKnowledgeArticle(existingId: string, article: ProcessedArticle): Promise<void> {
+    const dv = await loadDataverseClient();
+    await dv.knowledgearticle.update(existingId, {
+      title: article.title,
+      content: article.html,
+      description: `Updated from ${article.source.path}`,
+      ...(article.languageId ? { 'languagelocaleid@odata.bind': `/languagelocale(${article.languageId})` } : {}),
+      ...(article.subjectId ? { 'subjectid@odata.bind': `/subjects(${article.subjectId})` } : {}),
+    });
+  }
+
   /**
    * The Code App is bound to a single Dataverse environment at build time
    * (set by `pac code init` and the connection references in the published
@@ -140,15 +201,27 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
     return new TextEncoder().encode(String(res)).buffer;
   }
 
-  async createKnowledgeArticle(article: ProcessedArticle): Promise<string> {
+  async createKnowledgeArticle(article: ProcessedArticle, config?: KbConfig): Promise<{ id: string; url?: string }> {
     const dv = await loadDataverseClient();
+    const langId = article.languageId ?? config?.defaultLanguageId;
+    const subjId = article.subjectId ?? config?.defaultSubjectId;
+    const publish = article.publish ?? config?.publishOnLoad ?? false;
+
     const created = await dv.knowledgearticle.create({
       title: article.title,
       content: article.html,
       description: `Imported from ${article.source.path}`,
-      languagelocaleid_value: undefined  // optionally set the language lookup
+      // 3 = Published (statecode 3, statuscode 7); leaving unset = Draft.
+      ...(publish ? { statecode: 3, statuscode: 7 } : {}),
+      ...(langId ? { 'languagelocaleid@odata.bind': `/languagelocale(${langId})` } : {}),
+      ...(subjId ? { 'subjectid@odata.bind': `/subjects(${subjId})` } : {}),
     });
-    return created.knowledgearticleid ?? created.id;
+    const id = created.knowledgearticleid ?? created.id;
+    const envBase = await loadEnvBaseUrl();
+    const url = envBase
+      ? `${envBase.replace(/\/$/, '')}/main.aspx?etn=knowledgearticle&id=${id}&pagetype=entityrecord`
+      : undefined;
+    return { id, url };
   }
 
   async writeReport(config: KbConfig, log: LogEntry[]): Promise<ReportResult> {
@@ -222,3 +295,22 @@ async function loadDataverseClient(): Promise<any> {
     'and update PowerPlatformKbLoaderService.ts with the generated import.'
   );
 }
+
+async function loadEnvBaseUrl(): Promise<string | undefined> {
+  // The published Code App knows its Dataverse host from the connection
+  // metadata Power Platform injects at runtime. Replace this with whatever
+  // value the generated client exposes (e.g. dv.config.environmentUrl).
+  return undefined;
+}
+
+// Minimal LCID lookup for the languages most D365 KB orgs use. Extend as needed.
+const LCID_TO_CODE: Record<number, string> = {
+  1033: 'en-US', 2057: 'en-GB', 1031: 'de-DE', 1036: 'fr-FR', 3082: 'es-ES',
+  1041: 'ja-JP', 1040: 'it-IT', 1043: 'nl-NL', 1046: 'pt-BR', 2052: 'zh-CN',
+};
+const LCID_NAME: Record<number, string> = {
+  1033: 'English (United States)', 2057: 'English (United Kingdom)',
+  1031: 'German (Germany)', 1036: 'French (France)', 3082: 'Spanish (Spain)',
+  1041: 'Japanese', 1040: 'Italian (Italy)', 1043: 'Dutch (Netherlands)',
+  1046: 'Portuguese (Brazil)', 2052: 'Chinese (Simplified)',
+};

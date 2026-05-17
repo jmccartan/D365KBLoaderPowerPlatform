@@ -24,15 +24,63 @@ export interface ProcessedArticle {
   selected: boolean;
   /** Set after a successful load. */
   knowledgeArticleId?: string;
-  loadStatus: 'pending' | 'loading' | 'success' | 'error';
+  /** Direct deep-link to the article in D365 (set when known). */
+  knowledgeArticleUrl?: string;
+  loadStatus: 'pending' | 'loading' | 'success' | 'error' | 'skipped';
   loadError?: string;
   /** Possible overlap with existing D365 KB articles (set after a scan). */
   overlaps?: OverlapMatch[];
+  /** Override the run-level defaults for this article. */
+  languageId?: string;
+  subjectId?: string;
+  /** When true, publish on create instead of leaving as Draft. */
+  publish?: boolean;
 }
+
+/** A languagelocaleid row used by the picker. */
+export interface KbLanguage {
+  id: string;
+  code: string;           // e.g. "en-US"
+  displayName: string;    // e.g. "English (United States)"
+}
+
+/** A subject (category) tree node. */
+export interface KbSubject {
+  id: string;
+  name: string;
+  /** Server-relative-style path for display, e.g. "/IT/Networking" */
+  path: string;
+  parentId?: string;
+  hasChildren?: boolean;
+}
+
+/** A signed-in user — used for audit logging and owner assignment. */
+export interface KbUser {
+  id: string;
+  displayName: string;
+  email?: string;
+}
+
+/** What to do when a candidate article already exists in the KB. */
+export type DuplicateAction = 'create-new' | 'skip' | 'update-existing';
 
 export interface KbConfig {
   siteUrl: string;
   folderPath: string;
+  /** Default language for newly loaded articles (per-article can override). */
+  defaultLanguageId?: string;
+  /** Default subject/category (per-article can override). */
+  defaultSubjectId?: string;
+  /** When true, articles are published on create; otherwise left as Draft. */
+  publishOnLoad?: boolean;
+  /** What to do when a candidate already has a matching article in the KB. */
+  duplicateAction?: DuplicateAction;
+  /** Recurse into sub-folders during scan. */
+  recursive?: boolean;
+  /** Only include files modified on/after this ISO timestamp. */
+  modifiedSince?: string;
+  /** Skip files already loaded successfully in a prior run (read from prior report). */
+  incremental?: boolean;
 }
 
 /** A Copilot-generated suggestion for editing a KB article. */
@@ -111,9 +159,12 @@ export interface LogEntry {
   id?: string;
   timestamp: string;
   fileName: string;
-  action: 'scan' | 'process' | 'load' | 'skip';
+  action: 'scan' | 'process' | 'load' | 'skip' | 'update';
   status: 'success' | 'error' | 'info';
   message: string;
   knowledgeArticleId?: string;
   sourcePath?: string;
+  /** Identity of the user who triggered the action. */
+  userDisplayName?: string;
+  userEmail?: string;
 }
