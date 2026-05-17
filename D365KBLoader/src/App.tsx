@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  makeStyles, tokens, Text, MessageBar, MessageBarBody, MessageBarTitle,
+  makeStyles, tokens, Text, MessageBar, MessageBarBody, MessageBarTitle, Button,
 } from '@fluentui/react-components';
-import { BookDatabase24Filled, Sparkle20Filled } from '@fluentui/react-icons';
+import { BookDatabase24Filled, Sparkle20Filled, WeatherMoon20Regular, WeatherSunny20Regular } from '@fluentui/react-icons';
 import { ConfigPanel } from './components/ConfigPanel';
 import { KbDefaultsCard } from './components/KbDefaultsCard';
 import { LocalFilesDropZone } from './components/LocalFilesDropZone';
@@ -15,7 +15,7 @@ import { processFile } from './processing/pipeline';
 import { buildReportWorkbook } from './reporting/report';
 import { getService } from './services';
 import { findPii } from './services/piiScan';
-import { heroGradient } from './theme';
+import { getHeroGradient } from './theme';
 import type { KbConfig, ProcessedArticle, LogEntry, ReportResult, PowerPlatformEnvironment, KbUser, SavedScanProfile, SourceFile } from './types';
 
 const useStyles = makeStyles({
@@ -26,7 +26,6 @@ const useStyles = makeStyles({
     flexDirection: 'column',
   },
   hero: {
-    background: heroGradient,
     color: '#FFFFFF',
     padding: `${tokens.spacingVerticalXL} ${tokens.spacingHorizontalXXL}`,
     boxShadow: '0 2px 12px rgba(15, 60, 110, 0.25)',
@@ -58,6 +57,7 @@ const useStyles = makeStyles({
     alignItems: 'center',
     gap: tokens.spacingHorizontalL,
     position: 'relative',
+    flexWrap: 'wrap',
   },
   logo: {
     width: '52px',
@@ -82,8 +82,14 @@ const useStyles = makeStyles({
     color: 'rgba(255,255,255,0.85)',
     fontSize: tokens.fontSizeBase300,
   },
-  modeChip: {
+  heroActions: {
     marginLeft: 'auto',
+    display: 'flex',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalS,
+    flexWrap: 'wrap',
+  },
+  modeChip: {
     display: 'inline-flex',
     alignItems: 'center',
     gap: tokens.spacingHorizontalXS,
@@ -106,6 +112,27 @@ const useStyles = makeStyles({
     borderBottomColor: 'rgba(255,255,255,0.3)',
     borderLeftColor: 'rgba(255,255,255,0.3)',
   },
+  themeButton: {
+    minWidth: '40px',
+    color: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderTopWidth: '1px',
+    borderRightWidth: '1px',
+    borderBottomWidth: '1px',
+    borderLeftWidth: '1px',
+    borderTopStyle: 'solid',
+    borderRightStyle: 'solid',
+    borderBottomStyle: 'solid',
+    borderLeftStyle: 'solid',
+    borderTopColor: 'rgba(255,255,255,0.3)',
+    borderRightColor: 'rgba(255,255,255,0.3)',
+    borderBottomColor: 'rgba(255,255,255,0.3)',
+    borderLeftColor: 'rgba(255,255,255,0.3)',
+    ':hover': {
+      backgroundColor: 'rgba(255,255,255,0.28)',
+      color: '#FFFFFF',
+    },
+  },
   stepperBar: {
     backgroundColor: tokens.colorNeutralBackground1,
     borderBottomWidth: '1px',
@@ -126,7 +153,12 @@ const useStyles = makeStyles({
 type Stage = 'config' | 'review' | 'progress';
 type EmailStatus = { kind: 'success' | 'error'; message: string } | undefined;
 
-export function App() {
+export interface AppProps {
+  themeMode: 'light' | 'dark';
+  onToggleTheme: () => void;
+}
+
+export function App({ themeMode, onToggleTheme }: AppProps) {
   const s = useStyles();
   const svc = useMemo(() => getService(), []);
 
@@ -457,7 +489,7 @@ export function App() {
 
   return (
     <div className={s.shell}>
-      <header className={s.hero}>
+      <header className={s.hero} style={{ background: getHeroGradient(themeMode) }}>
         <div className={s.heroDecor} />
         <div className={s.heroDecor2} />
         <div className={s.heroInner}>
@@ -470,16 +502,26 @@ export function App() {
               SharePoint folder → Dynamics 365 Knowledgebase, with preview, edit, and an audit trail.
             </Text>
           </div>
-          {isMock && (
-            <span className={s.modeChip}>
-              <Sparkle20Filled /> Mock mode
-            </span>
-          )}
-          <EnvironmentPicker
-            service={svc}
-            selected={environment}
-            onChange={setEnvironment}
-          />
+          <div className={s.heroActions}>
+            {isMock && (
+              <span className={s.modeChip}>
+                <Sparkle20Filled /> Mock mode
+              </span>
+            )}
+            <EnvironmentPicker
+              service={svc}
+              selected={environment}
+              onChange={setEnvironment}
+            />
+            <Button
+              appearance="subtle"
+              icon={themeMode === 'dark' ? <WeatherSunny20Regular /> : <WeatherMoon20Regular />}
+              className={s.themeButton}
+              onClick={onToggleTheme}
+            >
+              {themeMode === 'dark' ? 'Light' : 'Dark'}
+            </Button>
+          </div>
         </div>
       </header>
 

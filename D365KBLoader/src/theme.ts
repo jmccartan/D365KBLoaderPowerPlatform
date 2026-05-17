@@ -1,4 +1,4 @@
-import { createLightTheme, type BrandVariants, type Theme } from '@fluentui/react-components';
+import { createDarkTheme, createLightTheme, type BrandVariants, type Theme } from '@fluentui/react-components';
 
 // A vivid Microsoft-style blue ramp (16 stops, required by Fluent v9).
 export const kbBrand: BrandVariants = {
@@ -22,9 +22,17 @@ export const kbBrand: BrandVariants = {
 
 export const kbLightTheme: Theme = {
   ...createLightTheme(kbBrand),
-  // Subtle background tint so the page feels less stark
   colorNeutralBackground2: '#F5F8FC',
 };
 
-export const heroGradient =
-  'linear-gradient(135deg, #0B3A6F 0%, #1364B5 45%, #1F86DD 100%)';
+export const kbDarkTheme: Theme = {
+  ...createDarkTheme(kbBrand),
+  colorNeutralBackground1: '#111A2E',
+  colorNeutralBackground2: '#0E1525',
+};
+
+export function getHeroGradient(mode: 'light' | 'dark') {
+  return mode === 'dark'
+    ? 'linear-gradient(135deg, #08284C 0%, #0C4E8D 45%, #1369B8 100%)'
+    : 'linear-gradient(135deg, #0B3A6F 0%, #1364B5 45%, #1F86DD 100%)';
+}

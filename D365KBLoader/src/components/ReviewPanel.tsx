@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Card, Text, Button, Checkbox, makeStyles, tokens, mergeClasses,
   Tab, TabList, Input, Textarea, Badge, Tooltip, Spinner, Divider,
-  MessageBar, MessageBarBody, MessageBarTitle,
+  MessageBar, MessageBarBody, MessageBarTitle, Popover, PopoverSurface, PopoverTrigger,
 } from '@fluentui/react-components';
 import {
   Edit24Regular, Eye24Regular, Code24Regular, DocumentText24Regular,
@@ -48,6 +48,9 @@ const useStyles = makeStyles({
     gap: tokens.spacingHorizontalM,
     alignItems: 'center',
     flexWrap: 'wrap',
+  },
+  helpButton: {
+    minWidth: '36px',
   },
   countChip: {
     display: 'inline-flex',
@@ -107,6 +110,13 @@ const useStyles = makeStyles({
     borderBottomColor: tokens.colorBrandStroke2,
     borderLeftColor: tokens.colorBrandStroke2,
     ':hover': { backgroundColor: tokens.colorBrandBackground2 },
+  },
+  rowDropTarget: {
+    borderTopColor: tokens.colorBrandStroke1,
+    borderRightColor: tokens.colorBrandStroke1,
+    borderBottomColor: tokens.colorBrandStroke1,
+    borderLeftColor: tokens.colorBrandStroke1,
+    backgroundColor: tokens.colorBrandBackgroundInvertedSelected,
   },
   fileIcon: {
     width: '32px',
@@ -203,6 +213,10 @@ const useStyles = makeStyles({
     borderBottomColor: tokens.colorBrandStroke2,
     borderLeftColor: tokens.colorBrandStroke2,
   },
+  shortcutsList: {
+    margin: `${tokens.spacingVerticalXS} 0 0`,
+    paddingLeft: '18px',
+  },
 });
 
 export interface ReviewPanelProps {
@@ -223,6 +237,8 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
   const [editorMode, setEditorMode] = useState<'visual' | 'source'>('visual');
   const active = articles.find(article => article.id === activeId) ?? articles[0];
   const [editDraft, setEditDraft] = useState(active?.html ?? '');
+  const [draggingId, setDraggingId] = useState<string | undefined>();
+  const [dragOverId, setDragOverId] = useState<string | undefined>();
 
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [copilotLoading, setCopilotLoading] = useState(false);
@@ -253,6 +269,7 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
   const someSelected = articles.some(article => article.selected) && !allSelected;
   const selectedCount = articles.filter(article => article.selected).length;
   const selectedWithFindings = articles.filter(article => article.selected && article.findings.length > 0).length;
+  const loadDisabled = loading || selectedCount === 0 || !canLoad || (blockPiiOnLoad && selectedWithFindings > 0);
   const loadTooltip = !canLoad
     ? (disabledReason ?? 'Select an environment first')
     : blockPiiOnLoad && selectedWithFindings > 0
@@ -260,6 +277,30 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
       : selectedWithFindings > 0
         ? `${selectedWithFindings} selected article${selectedWithFindings === 1 ? '' : 's'} contain possible PII. Loading is allowed, but review the findings first.`
         : undefined;
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (isEditableTarget(event.target)) {
+        return;
+      }
+      if (event.key === 'j' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        moveActive(1);
+      } else if (event.key === 'k' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        moveActive(-1);
+      } else if (event.key === ' ' && active) {
+        event.preventDefault();
+        toggleSelection(active.id);
+      } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !loadDisabled) {
+        event.preventDefault();
+        onLoad();
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [active, articles, loadDisabled, onLoad]);
 
   const update = (id: string, patch: Partial<ProcessedArticle>) => {
     onChange(articles.map(article => article.id === id ? { ...article, ...patch } : article));
@@ -272,6 +313,26 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
       selected: next && (!blockPiiOnLoad || article.findings.length === 0),
     })));
   };
+
+  function toggleSelection(id: string) {
+    const target = articles.find(article => article.id === id);
+    if (!target) {
+      return;
+    }
+    if (blockPiiOnLoad && target.findings.length > 0) {
+      return;
+    }
+    update(id, { selected: !target.selected });
+  }
+
+  function moveActive(offset: number) {
+    if (!active) {
+      return;
+    }
+    const currentIndex = articles.findIndex(article => article.id === active.id);
+    const nextIndex = Math.min(Math.max(currentIndex + offset, 0), articles.length - 1);
+    setActiveId(articles[nextIndex]?.id ?? active.id);
+  }
 
   async function openSuggestion(target: ProcessedArticle, mode: 'single' | 'bulk', queue: string[] = [], index = 0) {
     setCopilotMode(mode);
@@ -398,6 +459,21 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
     }
   }
 
+  function reorderArticles(fromId: string, toId: string) {
+    if (fromId === toId) {
+      return;
+    }
+    const next = [...articles];
+    const fromIndex = next.findIndex(article => article.id === fromId);
+    const toIndex = next.findIndex(article => article.id === toId);
+    if (fromIndex < 0 || toIndex < 0) {
+      return;
+    }
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    onChange(next);
+  }
+
   return (
     <Card className={s.card}>
       <div className={s.accent} />
@@ -445,11 +521,25 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
               size="large"
               icon={loading ? <Spinner size="tiny" /> : <CloudArrowUp20Filled />}
               onClick={onLoad}
-              disabled={loading || selectedCount === 0 || !canLoad || (blockPiiOnLoad && selectedWithFindings > 0)}
+              disabled={loadDisabled}
             >
               Load {selectedCount} into KB
             </Button>
           </Tooltip>
+          <Popover>
+            <PopoverTrigger disableButtonEnhancement>
+              <Button appearance="secondary" className={s.helpButton}>?</Button>
+            </PopoverTrigger>
+            <PopoverSurface>
+              <Text weight="semibold" block>Keyboard shortcuts</Text>
+              <ul className={s.shortcutsList}>
+                <li><Text size={200}>J / ↓ — next article</Text></li>
+                <li><Text size={200}>K / ↑ — previous article</Text></li>
+                <li><Text size={200}>Space — toggle selected on the active article</Text></li>
+                <li><Text size={200}>Ctrl/Cmd + Enter — load selected articles</Text></li>
+              </ul>
+            </PopoverSurface>
+          </Popover>
         </div>
       </div>
       {(overlapBanner || overlapError) && (
@@ -481,8 +571,27 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
             return (
               <div
                 key={article.id}
-                className={mergeClasses(s.row, isActive && s.rowActive)}
+                className={mergeClasses(s.row, isActive && s.rowActive, dragOverId === article.id && s.rowDropTarget)}
                 onClick={() => setActiveId(article.id)}
+                draggable
+                onDragStart={() => { setDraggingId(article.id); setActiveId(article.id); }}
+                onDragOver={event => {
+                  event.preventDefault();
+                  setDragOverId(article.id);
+                }}
+                onDragLeave={() => setDragOverId(current => current === article.id ? undefined : current)}
+                onDrop={event => {
+                  event.preventDefault();
+                  if (draggingId) {
+                    reorderArticles(draggingId, article.id);
+                  }
+                  setDraggingId(undefined);
+                  setDragOverId(undefined);
+                }}
+                onDragEnd={() => {
+                  setDraggingId(undefined);
+                  setDragOverId(undefined);
+                }}
               >
                 <Tooltip content={selectionBlocked ? 'PII blocking is enabled for this run. Resolve the finding or switch to warn-only mode to select this article.' : ''} relationship="label" visible={selectionBlocked ? undefined : false}>
                   <Checkbox
@@ -653,6 +762,13 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
 
 function summarizeFindings(findings: PIIFinding[]): string {
   return findings.map(finding => `${finding.kind} × ${finding.count}${finding.snippets.length > 0 ? ` — ${finding.snippets.join(' · ')}` : ''}`).join('\n');
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable;
 }
 
 function StatusBadge({ status }: { status: ProcessedArticle['loadStatus'] }) {
