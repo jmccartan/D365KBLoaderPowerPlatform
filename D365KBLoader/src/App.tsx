@@ -7,10 +7,11 @@ import { ConfigPanel } from './components/ConfigPanel';
 import { ReviewPanel } from './components/ReviewPanel';
 import { ProgressPanel } from './components/ProgressPanel';
 import { Stepper } from './components/Stepper';
+import { EnvironmentPicker } from './components/EnvironmentPicker';
 import { processFile } from './processing/pipeline';
 import { getService } from './services';
 import { heroGradient } from './theme';
-import type { KbConfig, ProcessedArticle, LogEntry, ReportResult } from './types';
+import type { KbConfig, ProcessedArticle, LogEntry, ReportResult, PowerPlatformEnvironment } from './types';
 
 const useStyles = makeStyles({
   shell: {
@@ -127,8 +128,10 @@ export function App() {
   const [reportSaving, setReportSaving] = useState(false);
   const [reportResult, setReportResult] = useState<ReportResult | undefined>();
   const [reportError, setReportError] = useState<string | undefined>();
+  const [environment, setEnvironment] = useState<PowerPlatformEnvironment | undefined>();
 
   const isMock = import.meta.env?.VITE_USE_REAL_CONNECTORS !== 'true';
+  const envReady = !!environment && environment.knowledgebaseStatus === 'present';
 
   function appendLog(entry: LogEntry) {
     setLog(prev => [{ ...entry, id: String(prev.length + 1) }, ...prev]);
@@ -242,6 +245,11 @@ export function App() {
               <Sparkle20Filled /> Mock mode
             </span>
           )}
+          <EnvironmentPicker
+            service={svc}
+            selected={environment}
+            onChange={setEnvironment}
+          />
         </div>
       </header>
 
@@ -258,6 +266,36 @@ export function App() {
       </div>
 
       <main className={s.body}>
+        {!environment && (
+          <MessageBar intent="warning">
+            <MessageBarBody>
+              <MessageBarTitle>Pick a target environment</MessageBarTitle>
+              Use the <strong>Environment</strong> chip in the header to choose
+              which Power Platform environment to load articles into. The app
+              will verify the Dynamics 365 Knowledgebase is available there.
+            </MessageBarBody>
+          </MessageBar>
+        )}
+        {environment && environment.knowledgebaseStatus === 'missing' && (
+          <MessageBar intent="error">
+            <MessageBarBody>
+              <MessageBarTitle>Knowledgebase not installed</MessageBarTitle>
+              <strong>{environment.displayName}</strong> doesn't have the
+              <code> knowledgearticle</code> table. Install the Dynamics 365
+              Customer Service (or another Knowledge-enabled) solution, or
+              pick a different environment.
+            </MessageBarBody>
+          </MessageBar>
+        )}
+        {environment && environment.knowledgebaseStatus === 'error' && (
+          <MessageBar intent="warning">
+            <MessageBarBody>
+              <MessageBarTitle>Couldn't verify the Knowledgebase</MessageBarTitle>
+              {environment.knowledgebaseError ?? 'The check failed. You can still try loading, but it may not work.'}
+            </MessageBarBody>
+          </MessageBar>
+        )}
+
         {isMock && (
           <MessageBar intent="info">
             <MessageBarBody>
@@ -272,7 +310,22 @@ export function App() {
           <ConfigPanel config={config} onChange={setConfig} onScan={handleScan} scanning={scanning} error={scanError} />
         )}
         {stage === 'review' && (
-          <ReviewPanel articles={articles} onChange={setArticles} onLoad={handleLoad} loading={loading} />
+          <ReviewPanel
+            articles={articles}
+            onChange={setArticles}
+            onLoad={handleLoad}
+            loading={loading}
+            canLoad={envReady}
+            disabledReason={
+              !environment
+                ? 'Pick a Power Platform environment first.'
+                : environment.knowledgebaseStatus === 'missing'
+                  ? 'The selected environment has no knowledgearticle table.'
+                  : environment.knowledgebaseStatus !== 'present'
+                    ? 'Knowledgebase availability not confirmed for this environment.'
+                    : undefined
+            }
+          />
         )}
         {stage === 'progress' && (
           <ProgressPanel

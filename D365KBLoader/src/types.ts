@@ -67,6 +67,20 @@ export interface OverlapMatch {
   reasons: string[];
 }
 
+/** A Power Platform / Dataverse environment the user can target. */
+export interface PowerPlatformEnvironment {
+  id: string;
+  displayName: string;
+  /** Dataverse Web API base URL, e.g. https://contoso.crm.dynamics.com */
+  url: string;
+  region?: string;
+  /** True if this environment is the user's default. */
+  isDefault?: boolean;
+  /** Set by checkKnowledgebase. */
+  knowledgebaseStatus: 'unknown' | 'checking' | 'present' | 'missing' | 'error';
+  knowledgebaseError?: string;
+}
+
 /** Result of writing the per-run Excel report. */
 export interface ReportResult {
   fileName: string;

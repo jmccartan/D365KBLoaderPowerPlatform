@@ -184,9 +184,13 @@ export interface ReviewPanelProps {
   onChange: (articles: ProcessedArticle[]) => void;
   onLoad: () => void;
   loading: boolean;
+  /** Set to false if there is no usable environment yet. */
+  canLoad?: boolean;
+  /** Human-readable reason shown in the Load button tooltip when disabled. */
+  disabledReason?: string;
 }
 
-export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanelProps) {
+export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = true, disabledReason }: ReviewPanelProps) {
   const s = useStyles();
   const svc = useMemo(() => getService(), []);
   const [activeId, setActiveId] = useState<string>(articles[0]?.id ?? '');
@@ -300,20 +304,30 @@ export function ReviewPanel({ articles, onChange, onLoad, loading }: ReviewPanel
             size="large"
             icon={overlapScanning ? <Spinner size="tiny" /> : <BranchCompare20Regular />}
             onClick={scanForOverlap}
-            disabled={overlapScanning || articles.length === 0}
-            title="Compare these candidates against existing D365 KB articles"
+            disabled={overlapScanning || articles.length === 0 || !canLoad}
+            title={
+              !canLoad
+                ? (disabledReason ?? 'Select an environment first')
+                : 'Compare these candidates against existing D365 KB articles'
+            }
           >
             {overlapScanning ? 'Scanning…' : 'Scan for overlap'}
           </Button>
-          <Button
-            appearance="primary"
-            size="large"
-            icon={loading ? <Spinner size="tiny" /> : <CloudArrowUp20Filled />}
-            onClick={onLoad}
-            disabled={loading || selectedCount === 0}
+          <Tooltip
+            content={!canLoad ? (disabledReason ?? 'Select an environment first') : ''}
+            relationship="label"
+            visible={!canLoad ? undefined : false}
           >
-            Load {selectedCount} into KB
-          </Button>
+            <Button
+              appearance="primary"
+              size="large"
+              icon={loading ? <Spinner size="tiny" /> : <CloudArrowUp20Filled />}
+              onClick={onLoad}
+              disabled={loading || selectedCount === 0 || !canLoad}
+            >
+              Load {selectedCount} into KB
+            </Button>
+          </Tooltip>
         </div>
       </div>
       {(overlapBanner || overlapError) && (

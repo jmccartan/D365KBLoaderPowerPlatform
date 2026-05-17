@@ -16,20 +16,25 @@ Microsoft app, not a stock Power Apps form.
 
 ## What it does
 
-1. **Configure** — pick a SharePoint site and folder from a **drill-down
+1. **Pick the target environment** — an Environment chip in the header lists
+   the Power Platform / Dataverse environments you can access and shows a
+   green check next to each one that has the Dynamics 365 Knowledgebase
+   (`knowledgearticle` table) installed. Load is blocked until you pick an
+   environment where the KB is available.
+2. **Configure** — pick a SharePoint site and folder from a **drill-down
    browser** (or paste a URL). No more copy/pasting paths.
-2. **Scan & pre-process** — enumerates files, classifies (`.docx`, `.html/.htm`,
+3. **Scan & pre-process** — enumerates files, classifies (`.docx`, `.html/.htm`,
    skipped), converts DOCX to HTML with `mammoth`, sanitizes with
    `sanitize-html`, derives a title.
-3. **Review** — Fluent UI list with checkboxes; per-article tabs for
+4. **Review** — Fluent UI list with checkboxes; per-article tabs for
    **Preview**, **Edit HTML**, and **Raw source**. Title is editable. The
    Edit tab has a **Suggest edits with Copilot** button that proposes
    structure and clarity improvements you can Accept or Decline. Click
    **Scan for overlap** to compare candidates against your existing D365
    KB and flag likely duplicates.
-4. **Load** — creates `knowledgearticle` rows for selected items, streaming
+5. **Load** — creates `knowledgearticle` rows for selected items, streaming
    progress in the UI.
-5. **Report** — a formatted `KB-Loader-Report-YYYYMMDD-hhmmss.xlsx` is
+6. **Report** — a formatted `KB-Loader-Report-YYYYMMDD-hhmmss.xlsx` is
    auto-saved to the **same folder you scanned** (Summary sheet +
    color-coded, filterable Activity Log). Click **Save Excel report** any
    time to regenerate.
@@ -51,7 +56,7 @@ D365KBLoader/                Code App project
     theme.ts                 Custom blue Fluent brand ramp
     components/              ConfigPanel, ReviewPanel, ProgressPanel,
                              Stepper, BrowseSiteDialog, BrowseFolderDialog,
-                             SuggestEditsDialog
+                             EnvironmentPicker, SuggestEditsDialog
     processing/pipeline.ts   DOCX/HTML → sanitized HTML
     reporting/report.ts      Excel run report (exceljs)
     services/                KbLoaderService interface + Mock + PowerPlatform impl,
@@ -208,6 +213,27 @@ the Progress tab. When a load finishes, a formatted Excel report
 the history travels with the source content — no separate list, no extra
 SharePoint plumbing. You can also click **Save Excel report** at any time to
 regenerate it.
+
+## Environment picker
+
+Click the **Environment** chip in the header to choose which Power Platform
+environment to target. The dialog lists every environment the signed-in user
+can access and checks each one for the `knowledgearticle` table in parallel:
+
+| Status | Meaning |
+|--------|---------|
+| ✅ **Knowledgebase available** | The Customer Service / Knowledge Management solution is installed — safe to load. |
+| ⛔ **Knowledgebase not installed** | The environment has no `knowledgearticle` table; loading is blocked. |
+| ⚠️ **Check failed** | The verification request errored (network, auth) — you can still try, but loading may fail. |
+
+The Load and Scan-for-overlap buttons are disabled until a healthy
+environment is selected, so you can't accidentally publish into a sandbox
+that lacks the KB schema.
+
+Behind the scenes the real service uses the
+**Global Discovery Service** (`https://globaldisco.crm.dynamics.com/api/discovery/v2.0/Instances`)
+to enumerate environments, and an `EntityDefinitions(LogicalName='knowledgearticle')`
+metadata probe on each environment's Web API for the availability check.
 
 ## Overlap detection (existing KB scan)
 

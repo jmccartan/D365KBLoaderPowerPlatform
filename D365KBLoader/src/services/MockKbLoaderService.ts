@@ -1,5 +1,5 @@
 import type { KbLoaderService } from './KbLoaderService';
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch, PowerPlatformEnvironment } from '../types';
 import { buildReportWorkbook, downloadBlob } from '../reporting/report';
 import { buildMockSuggestion } from './copilotSuggest';
 import { scoreOverlaps } from './overlapDetect';
@@ -48,6 +48,22 @@ const MOCK_TREE: Record<string, Record<string, string[]>> = {
 };
 
 export class MockKbLoaderService implements KbLoaderService {
+  async listEnvironments(): Promise<PowerPlatformEnvironment[]> {
+    await delay(300);
+    return MOCK_ENVIRONMENTS.map(e => ({ ...e }));
+  }
+
+  async checkKnowledgebase(env: PowerPlatformEnvironment): Promise<PowerPlatformEnvironment> {
+    await delay(450);
+    // Use the canned status baked into the mock data; in real life we'd hit
+    // /api/data/v9.2/EntityDefinitions(LogicalName='knowledgearticle')
+    const canned = MOCK_ENVIRONMENTS.find(e => e.id === env.id);
+    if (canned?.knowledgebaseStatus === 'error') {
+      return { ...env, knowledgebaseStatus: 'error', knowledgebaseError: 'Could not reach environment (simulated).' };
+    }
+    return { ...env, knowledgebaseStatus: canned?.knowledgebaseStatus ?? 'unknown' };
+  }
+
   async listSites(): Promise<SharePointSite[]> {
     await delay(250);
     return [...MOCK_SITES];
@@ -106,6 +122,38 @@ export class MockKbLoaderService implements KbLoaderService {
     return scoreOverlaps(articles, MOCK_EXISTING_KB);
   }
 }
+
+const MOCK_ENVIRONMENTS: PowerPlatformEnvironment[] = [
+  {
+    id: 'env-prod',
+    displayName: 'Contoso – Production',
+    url: 'https://contoso.crm.dynamics.com',
+    region: 'United States',
+    isDefault: true,
+    knowledgebaseStatus: 'present',
+  },
+  {
+    id: 'env-test',
+    displayName: 'Contoso – Test',
+    url: 'https://contoso-test.crm.dynamics.com',
+    region: 'United States',
+    knowledgebaseStatus: 'present',
+  },
+  {
+    id: 'env-dev',
+    displayName: 'Contoso – Dev sandbox',
+    url: 'https://contoso-dev.crm.dynamics.com',
+    region: 'United States',
+    knowledgebaseStatus: 'missing',
+  },
+  {
+    id: 'env-eu',
+    displayName: 'Contoso EU – Production',
+    url: 'https://contoso-eu.crm4.dynamics.com',
+    region: 'Europe',
+    knowledgebaseStatus: 'error',
+  },
+];
 
 const MOCK_EXISTING_KB: ExistingKbArticle[] = [
   {

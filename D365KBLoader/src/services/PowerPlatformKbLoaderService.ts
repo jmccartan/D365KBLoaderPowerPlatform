@@ -1,5 +1,5 @@
 import type { KbLoaderService } from './KbLoaderService';
-import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch } from '../types';
+import type { SourceFile, ProcessedArticle, KbConfig, LogEntry, SharePointSite, FolderItem, ReportResult, ArticleSuggestion, ExistingKbArticle, OverlapMatch, PowerPlatformEnvironment } from '../types';
 import { classify } from '../processing/pipeline';
 import { buildReportWorkbook } from '../reporting/report';
 import { buildMockSuggestion } from './copilotSuggest';
@@ -28,6 +28,54 @@ import { scoreOverlaps } from './overlapDetect';
  *       Required fields: title, content (HTML), description (optional), articlepublicnumber (auto)
  */
 export class PowerPlatformKbLoaderService implements KbLoaderService {
+  /**
+   * The Code App is bound to a single Dataverse environment at build time
+   * (set by `pac code init` and the connection references in the published
+   * app). The Global Discovery Service lets the same signed-in user enumerate
+   * all environments they have access to so the UI can switch between them.
+   *
+   * Endpoint: `https://globaldisco.crm.dynamics.com/api/discovery/v2.0/Instances`
+   * Auth: same AAD bearer token used by the Dataverse connector.
+   */
+  async listEnvironments(): Promise<PowerPlatformEnvironment[]> {
+    const dv = await loadDataverseClient();
+    const res = await dv.discovery?.listInstances?.();
+    if (!res?.value) {
+      throw new Error(
+        'Could not enumerate environments. The default Dataverse connection must include the ' +
+        'Global Discovery endpoint, or wire this to the BAP API directly.'
+      );
+    }
+    return res.value.map((i: any) => ({
+      id: i.EnvironmentId ?? i.Id ?? i.UrlName,
+      displayName: i.FriendlyName ?? i.Name,
+      url: i.Url,
+      region: i.Region,
+      isDefault: !!i.IsDefault,
+      knowledgebaseStatus: 'unknown' as const,
+    } as PowerPlatformEnvironment));
+  }
+
+  /**
+   * Check whether the `knowledgearticle` table exists in the target environment.
+   * A 200 response from EntityDefinitions means the Customer Service / Knowledge
+   * Management solution is installed; 404 means it's missing.
+   */
+  async checkKnowledgebase(env: PowerPlatformEnvironment): Promise<PowerPlatformEnvironment> {
+    try {
+      const url = `${env.url.replace(/\/$/, '')}/api/data/v9.2/EntityDefinitions(LogicalName='knowledgearticle')?$select=LogicalName`;
+      const dv = await loadDataverseClient();
+      const res = await dv.fetch?.(url);
+      if (res?.status === 404) return { ...env, knowledgebaseStatus: 'missing' };
+      if (res?.ok === false) {
+        return { ...env, knowledgebaseStatus: 'error', knowledgebaseError: `HTTP ${res.status}` };
+      }
+      return { ...env, knowledgebaseStatus: 'present' };
+    } catch (e: any) {
+      return { ...env, knowledgebaseStatus: 'error', knowledgebaseError: String(e?.message ?? e) };
+    }
+  }
+
   async listSites(): Promise<SharePointSite[]> {
     // The SharePoint Online connector exposes site discovery via
     // `GetAllSites` (or, depending on connector version, `GetSitesAvailableForCurrentUser`).
