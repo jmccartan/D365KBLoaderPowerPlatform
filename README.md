@@ -22,30 +22,46 @@ Microsoft app, not a stock Power Apps form.
    (`knowledgearticle` table) installed. Load is blocked until you pick an
    environment where the KB is available.
 2. **Configure** — pick a SharePoint site and folder from a **drill-down
-   browser** (or paste a URL). No more copy/pasting paths.
+   browser**, or drag-and-drop local files (`.docx`, `.html`, `.pdf`, `.md`)
+   directly. Set article defaults (language, subject/category, publish-on-load,
+   duplicate behavior) and toggle recursive / incremental scanning. Save the
+   whole configuration as a named **Profile** for re-use.
 3. **Scan & pre-process** — enumerates files, classifies (`.docx`, `.html/.htm`,
-   skipped), converts DOCX to HTML with `mammoth`, sanitizes with
-   `sanitize-html`, derives a title.
+   `.pdf`, `.md`, skipped), converts each to sanitized HTML, derives a title,
+   and runs a PII / sensitive-content scan (emails, SSNs, credit-card-like
+   patterns).
 4. **Review** — Fluent UI list with checkboxes; per-article tabs for
-   **Preview**, **Edit HTML**, and **Raw source**. Title is editable. The
-   Edit tab has a **Suggest edits with Copilot** button that proposes
-   structure and clarity improvements you can Accept or Decline. Click
+   **Preview**, **Edit** (visual rich-text editor or raw HTML source), and
+   **Raw source**. Title is editable, articles are drag-to-reorder, and
+   keyboard shortcuts (`J/K`, arrows, `Space`, `Ctrl/Cmd+Enter`) make bulk
+   review fast. The Edit tab has a **Suggest edits with Copilot** button —
+   or apply Copilot suggestions in bulk across selected articles. Click
    **Scan for overlap** to compare candidates against your existing D365
    KB and flag likely duplicates.
-5. **Load** — creates `knowledgearticle` rows for selected items, streaming
-   progress in the UI.
+5. **Load** — for each selected article, optionally skip / update / create a
+   new `knowledgearticle` row based on the duplicate setting, honoring the
+   default and per-article language, subject, and publish/draft choice.
+   Streams progress in the UI with **Open in D365** links after success.
 6. **Report** — a formatted `KB-Loader-Report-YYYYMMDD-hhmmss.xlsx` is
    auto-saved to the **same folder you scanned** (Summary sheet +
-   color-coded, filterable Activity Log). Click **Save Excel report** any
-   time to regenerate.
+   color-coded, filterable Activity Log including the user identity). Click
+   **Save Excel report** any time to regenerate, or **Email report…** to
+   send it to a distribution list via Outlook.
+
+### Polish
+
+- **Dark mode** toggle in the header (persisted in localStorage).
+- **Keyboard shortcuts** with a `?` help popover in the Review toolbar.
+- **Drag-to-reorder** articles in the Review list.
 
 ## Stack
 
 - Power Apps Code App (`pac code`) — modern code-first Power App, deployed
   with `pac code push`.
 - React 18 + TypeScript + Vite
-- Fluent UI v9
-- `mammoth` (DOCX → HTML), `sanitize-html`, `exceljs` (run report)
+- Fluent UI v9 (custom blue brand theme, light + dark)
+- `mammoth` (DOCX → HTML), `pdfjs-dist` (PDF text extraction),
+  built-in Markdown converter, `sanitize-html`, `exceljs` (run report)
 
 ## Project layout
 
@@ -53,15 +69,19 @@ Microsoft app, not a stock Power Apps form.
 D365KBLoader/                Code App project
   src/
     App.tsx                  Top-level wizard, hero header, stepper
-    theme.ts                 Custom blue Fluent brand ramp
+    theme.ts                 Custom blue Fluent brand ramp (light + dark)
     components/              ConfigPanel, ReviewPanel, ProgressPanel,
-                             Stepper, BrowseSiteDialog, BrowseFolderDialog,
-                             EnvironmentPicker, SuggestEditsDialog
-    processing/pipeline.ts   DOCX/HTML → sanitized HTML
+                             Stepper, EnvironmentPicker, KbDefaultsCard,
+                             ProfilesBar, LocalFilesDropZone,
+                             BrowseSiteDialog, BrowseFolderDialog,
+                             BrowseSubjectDialog, SuggestEditsDialog,
+                             RichTextEditor
+    processing/pipeline.ts   DOCX/HTML/PDF/Markdown → sanitized HTML
     reporting/report.ts      Excel run report (exceljs)
-    services/                KbLoaderService interface + Mock + PowerPlatform impl,
-                             copilotSuggest.ts (heuristic editor),
-                             overlapDetect.ts (KB duplicate scorer)
+    services/                KbLoaderService interface + Mock + PowerPlatform
+                             impl, copilotSuggest.ts (heuristic editor),
+                             overlapDetect.ts (KB duplicate scorer),
+                             piiScan.ts (email / SSN / credit-card detector)
     types.ts
 ```
 
@@ -140,9 +160,16 @@ sample files end-to-end without touching SharePoint or Dataverse.
    service uses these connector actions:
    - **SharePoint** — `GetAllSites` (site browser), `GetFolderItemsByPath`
      (folder browser), `GetFolderFilesByPath` (scan), `GetFileContent`
-     (download), `CreateFile` (upload the run report).
-   - **Dataverse** — `Create` on `knowledgearticle` (load), `ListRecords`
-     on `knowledgearticle` filtered to published / draft (overlap scan).
+     (download), `CreateFile` (upload the run report + extracted images).
+   - **Dataverse** — `Create` and `Update` on `knowledgearticle` (load),
+     `ListRecords` on `knowledgearticle` filtered to published / draft
+     (overlap scan + duplicate detection), `RetrieveProvisionedLanguages`
+     (language picker), `subject` table list (subject picker), `WhoAmI`
+     and `systemuser` retrieve (current-user identity for audit logging),
+     **Global Discovery Service** for environment enumeration,
+     `EntityDefinitions(LogicalName='knowledgearticle')` for the
+     knowledgebase availability probe.
+   - **Outlook (optional)** — `SendEmailV2` for the **Email report** button.
    - **(Optional) Copilot suggestions** — swap `suggestEdits()` for an
      Azure OpenAI custom connector or a Dataverse AI Prompt action (see
      [Copilot suggestions](#copilot-suggestions-article-review) below).
@@ -213,6 +240,89 @@ the Progress tab. When a load finishes, a formatted Excel report
 the history travels with the source content — no separate list, no extra
 SharePoint plumbing. You can also click **Save Excel report** at any time to
 regenerate it.
+
+## Article defaults &amp; per-article overrides
+
+The **Article defaults** card on the Configure step controls:
+
+| Setting | Effect |
+|---------|--------|
+| **Default language** | Sets `languagelocaleid` on every created article. Loaded from `RetrieveProvisionedLanguages` in real mode. |
+| **Default subject / category** | Browseable subject tree (Dataverse `subject` table). |
+| **Publish on load** | Off = articles land as **Draft**; on = published immediately (`statecode=3, statuscode=7`). |
+| **Duplicate behavior** | **Skip** the candidate / **Update existing** / **Create new** when an article with the same title already exists. Match is by exact `title`. |
+| **Include sub-folders** | Recurse into nested SharePoint folders during scan. |
+| **Incremental** | Read the `KB-Loader-Report-*.xlsx` files in the source folder and skip anything previously loaded successfully. |
+
+Each article in the Review step can override the language and subject in its
+detail pane.
+
+## Source flexibility
+
+- **SharePoint** — pick a site → drill into a folder.
+- **Local upload** — drag-and-drop `.docx`, `.html`, `.pdf`, `.md` onto the
+  Configure step, or click to browse. Same review + load flow applies.
+- **PDF** — text is extracted page-by-page with `pdfjs-dist` (worker loaded
+  lazily, image-only pages flagged as warnings).
+- **Markdown** — converted to HTML in-process (headings, lists, code fences,
+  bold/italic/links).
+
+## Rich-text editor
+
+The Edit tab on each article toggles between:
+
+- **Visual** — a Fluent-themed rich editor with Bold / Italic / Underline /
+  H1 / H2 / Bullet list / Numbered list / Link. Output is re-sanitized
+  through `sanitize-html` on every change so reviewer edits are safe.
+- **Source** — the raw HTML textarea for power users.
+
+## PII / sensitive-content scan
+
+Every processed article is scanned for emails, US SSNs (`XXX-XX-XXXX`), and
+credit-card-like number runs. Findings appear as a yellow callout in the
+Review detail pane. When **Block load on PII** is enabled in the defaults,
+articles with findings can't be selected for load until the content is
+cleaned.
+
+## Saved scan profiles
+
+Click **Save profile…** in the Profiles bar above the Configure step to
+store the current site + folder + defaults + environment under a name.
+Profiles persist in `localStorage` (mock) or a Dataverse custom table
+(real). One-click "Apply" restores the whole configuration so recurring
+imports take seconds.
+
+## Bulk Copilot edits
+
+In the Review toolbar, **Apply Copilot to selected** runs `suggestEdits`
+across every selected article, presenting each suggestion in turn for
+Accept / Decline / Skip-all. Useful for normalizing a fresh batch of imports
+in one sweep.
+
+## Email report
+
+After a run, click **Email report…** in the Progress step to send the
+`.xlsx` to a comma-separated To list with a prefilled summary. Mock mode
+logs the request; real mode uses the Outlook connector's `SendEmailV2`
+with the file as a Base64 attachment.
+
+## Dark mode
+
+The sun/moon button in the hero header toggles between the custom light and
+dark Fluent brand themes. Choice is persisted across sessions.
+
+## Keyboard shortcuts (Review step)
+
+| Key | Action |
+|-----|--------|
+| `J` or `↓` | Next article |
+| `K` or `↑` | Previous article |
+| `Space` | Toggle selection on the active article |
+| `Ctrl/Cmd + Enter` | Trigger Load (when enabled) |
+| `?` | Show the help popover |
+
+Plus **drag-to-reorder** in the article list (HTML5 native — no extra
+dependencies).
 
 ## Environment picker
 
