@@ -1,5 +1,7 @@
 # D365 KB Loader
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A Power Apps **Code App** that reads HTML and Word documents from a SharePoint
 folder, lets you preview / tweak each one, and pushes them into the Dynamics
 365 Knowledgebase (`knowledgearticle` table). Every run produces a formatted
@@ -9,6 +11,8 @@ the content — no separate list, no extra SharePoint plumbing.
 A custom Fluent UI v9 blue theme, hero header, numbered stepper, and
 drill-down SharePoint browsers make the experience feel like a first-class
 Microsoft app, not a stock Power Apps form.
+
+![D365 KB Loader screenshot](docs/screenshot.png)
 
 ## What it does
 
@@ -198,3 +202,28 @@ Code Apps give you a real React/TS codebase, npm packages (we need `mammoth`
 for DOCX), proper version control, and Fluent UI v9 — far more polish than the
 canvas designer can produce. They deploy as first-class Power Apps with the
 same connectors and governance as canvas apps.
+
+## Promoting between environments (managed solutions)
+
+`pac code push` deploys directly into one environment. To move the app across
+**Dev → Test → Prod**, wrap it in a managed solution:
+
+```powershell
+# In Dev — create a solution that contains the published Code App
+pac solution init --publisher-name kbloader --publisher-prefix kbl
+pac solution add-reference --path .                           # add the Code App
+pac solution pack --zipfile bin\KbLoader_unmanaged.zip --folder src --packagetype Unmanaged
+pac solution pack --zipfile bin\KbLoader_managed.zip   --folder src --packagetype Managed
+
+# In each downstream env — authenticate, then import
+pac auth create --environment <TARGET_ENV>
+pac solution import --path bin\KbLoader_managed.zip --publish-changes
+```
+
+> Tip: in Test/Prod, re-authorize the SharePoint and Dataverse connections
+> after import — connection references don't carry credentials across
+> environments.
+
+## License
+
+[MIT](LICENSE)
