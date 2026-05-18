@@ -61,11 +61,30 @@ function collectCreditCardMatches(text: string): MatchInfo[] {
   let found: RegExpExecArray | null;
   while ((found = CREDIT_CARD_RE.exec(text)) !== null) {
     const digitsOnly = found[0].replace(/\D/g, '');
-    if (digitsOnly.length >= 13 && digitsOnly.length <= 19) {
-      matches.push({ kind: 'credit-card', value: found[0], index: found.index });
-    }
+    if (digitsOnly.length < 13 || digitsOnly.length > 19) continue;
+    // Cut down false positives (phone numbers, order ids, etc.) by requiring
+    // a Luhn checksum match — every issued PAN passes Luhn by spec.
+    if (!isLuhnValid(digitsOnly)) continue;
+    matches.push({ kind: 'credit-card', value: found[0], index: found.index });
   }
   return matches;
+}
+
+/** Standard Luhn check used to validate credit-card numbers. */
+function isLuhnValid(digits: string): boolean {
+  let sum = 0;
+  let alt = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let n = digits.charCodeAt(i) - 48;
+    if (n < 0 || n > 9) return false;
+    if (alt) {
+      n *= 2;
+      if (n > 9) n -= 9;
+    }
+    sum += n;
+    alt = !alt;
+  }
+  return sum % 10 === 0;
 }
 
 function normalizeInput(input: string): string {

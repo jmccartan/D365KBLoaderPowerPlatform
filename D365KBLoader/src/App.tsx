@@ -406,8 +406,9 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
     for (const article of targets) {
       setArticles(previous => previous.map(candidate => candidate.id === article.id ? { ...candidate, loadStatus: 'loading', loadError: undefined } : candidate));
       try {
+        const lookupTitle = (article.title ?? '').trim().replace(/\s+/g, ' ');
         const existing = config.duplicateAction !== 'create-new'
-          ? await svc.findArticleByTitle(article.title)
+          ? await svc.findArticleByTitle(lookupTitle)
           : undefined;
 
         if (existing && config.duplicateAction === 'skip') {

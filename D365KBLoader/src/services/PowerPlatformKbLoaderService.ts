@@ -68,9 +68,13 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
 
   async findArticleByTitle(title: string): Promise<ExistingKbArticle | undefined> {
     const dv = await loadDataverseClient();
+    const normalized = title.trim().replace(/\s+/g, ' ');
+    const escaped = normalized.replace(/'/g, "''").toLowerCase();
+    // Case-insensitive whitespace-tolerant match — OData supports tolower() and
+    // trim() functions on string fields.
     const res = await dv.knowledgearticle.list?.({
       $select: 'knowledgearticleid,title,modifiedon',
-      $filter: `title eq '${title.replace(/'/g, "''")}'`,
+      $filter: `tolower(trim(title)) eq '${escaped}'`,
       $top: 1,
     });
     const r = res?.value?.[0];

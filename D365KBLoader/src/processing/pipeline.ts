@@ -50,8 +50,12 @@ function extractBody(html: string): string {
 async function pdfToHtml(buf: ArrayBuffer): Promise<{ html: string; warnings: string[] }> {
   const warnings: string[] = [];
   const pdfjs = await import('pdfjs-dist');
+  // Bundle the worker so the app works behind corporate proxies / strict CSP /
+  // offline. Vite's ?url import emits the worker file as a static asset and
+  // returns its URL. The mjs build is the official ESM worker.
+  const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
   // @ts-ignore — pdfjs-dist exposes a mutable GlobalWorkerOptions
-  pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
   const doc = await pdfjs.getDocument({ data: buf }).promise;
   const paragraphs: string[] = [];
   for (let p = 1; p <= doc.numPages; p++) {

@@ -12,7 +12,9 @@ A custom Fluent UI v9 blue theme, hero header, numbered stepper, and
 drill-down SharePoint browsers make the experience feel like a first-class
 Microsoft app, not a stock Power Apps form.
 
-![D365 KB Loader screenshot](docs/screenshot.png)
+<!-- Drop a 1600×900+ PNG at docs/screenshot.png to surface here.
+     See docs/README.md for capture tips. -->
+&nbsp;
 
 ## What it does
 
@@ -146,6 +148,13 @@ Open <http://localhost:3000>. You should see the hero header with the
 four mock files (`Reset-Password.html`, `VPN-Setup.docx`, …). Walk through
 Configure → Scan → Review → Load to confirm the pipeline works on your
 machine. Hit `Ctrl+C` to stop the dev server.
+
+Run the unit tests:
+
+```powershell
+npm test          # one-shot
+npm run test:watch  # re-run on file save
+```
 
 ### 3. Prepare the target Power Platform environment
 

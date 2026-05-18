@@ -97,7 +97,12 @@ export function RichTextEditor({ value, onCommit }: RichTextEditorProps) {
     if (!url) {
       return;
     }
-    runCommand('createLink', url);
+    const safe = sanitizeUrl(url);
+    if (!safe) {
+      window.alert(`Refusing unsafe link URL "${url}". Only http(s), mailto:, and tel: links are allowed.`);
+      return;
+    }
+    runCommand('createLink', safe);
     commit();
   }
 
@@ -138,4 +143,21 @@ export function RichTextEditor({ value, onCommit }: RichTextEditorProps) {
       />
     </div>
   );
+}
+
+/** Return the URL if it uses a safe scheme; undefined otherwise. */
+function sanitizeUrl(raw: string): string | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  // Relative or hash links — keep.
+  if (trimmed.startsWith('#') || trimmed.startsWith('/')) return trimmed;
+  // Strip control chars then test scheme.
+  const stripped = trimmed.replace(/[\u0000-\u001F\u007F]/g, '').toLowerCase();
+  const dangerous = ['javascript:', 'data:', 'vbscript:', 'file:'];
+  if (dangerous.some(scheme => stripped.startsWith(scheme))) return undefined;
+  // Allow only the schemes we'd be happy to render.
+  if (/^(https?:|mailto:|tel:)/i.test(trimmed)) return trimmed;
+  // Bare domain → assume https.
+  if (/^[a-z0-9][a-z0-9.\-]*\.[a-z]{2,}/i.test(trimmed)) return `https://${trimmed}`;
+  return undefined;
 }
