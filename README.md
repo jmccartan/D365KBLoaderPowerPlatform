@@ -92,6 +92,7 @@ D365KBLoader/                Code App project
 ```powershell
 cd D365KBLoader
 npm install
+npm run build
 npm run dev
 ```
 
@@ -140,6 +141,7 @@ you can see the UI behave end-to-end.
 ```powershell
 cd D365KBLoader
 npm install
+npm run build
 npm run dev
 ```
 
