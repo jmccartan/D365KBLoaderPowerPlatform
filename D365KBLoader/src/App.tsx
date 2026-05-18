@@ -148,6 +148,18 @@ const useStyles = makeStyles({
     gap: tokens.spacingVerticalL,
     flex: 1,
   },
+  configGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
+    gap: tokens.spacingHorizontalL,
+    alignItems: 'start',
+  },
+  sectionLabel: {
+    fontSize: tokens.fontSizeBase400,
+    fontWeight: tokens.fontWeightSemibold,
+    color: tokens.colorNeutralForeground2,
+    marginTop: tokens.spacingVerticalM,
+  },
 });
 
 type Stage = 'config' | 'review' | 'progress';
@@ -538,6 +550,14 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
       </div>
 
       <main className={s.body}>
+        <ProfilesBar
+          profiles={profiles}
+          selectedProfileId={selectedProfileId}
+          loading={profilesLoading}
+          onApply={profile => { void handleApplyProfile(profile); }}
+          onSave={handleSaveProfile}
+          onDelete={handleDeleteProfile}
+        />
         {!environment && (
           <MessageBar intent="warning">
             <MessageBarBody>
@@ -580,19 +600,11 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
 
         {stage === 'config' && (
           <>
-            <ProfilesBar
-              profiles={profiles}
-              selectedProfileId={selectedProfileId}
-              loading={profilesLoading}
-              onApply={profile => { void handleApplyProfile(profile); }}
-              onSave={handleSaveProfile}
-              onDelete={handleDeleteProfile}
-            />
-            <ConfigPanel config={config} onChange={updateConfig} onScan={handleScan} scanning={scanning} error={scanError} />
-            <KbDefaultsCard service={svc} config={config} onChange={updateConfig} />
-            <Text size={300} weight="semibold" style={{ marginTop: tokens.spacingVerticalL }}>
-              …or upload local files
-            </Text>
+            <div className={s.configGrid}>
+              <ConfigPanel config={config} onChange={updateConfig} onScan={handleScan} scanning={scanning} error={scanError} />
+              <KbDefaultsCard service={svc} config={config} onChange={updateConfig} />
+            </div>
+            <Text className={s.sectionLabel}>…or upload local files</Text>
             <LocalFilesDropZone onFiles={ingestLocalFiles} />
           </>
         )}

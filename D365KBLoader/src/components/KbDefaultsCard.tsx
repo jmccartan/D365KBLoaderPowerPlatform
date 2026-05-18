@@ -9,7 +9,9 @@ import { BrowseSubjectDialog } from './BrowseSubjectDialog';
 
 const useStyles = makeStyles({
   card: {
-    maxWidth: '760px',
+    maxWidth: '100%',
+    flex: 1,
+    minWidth: 0,
     padding: 0,
     overflow: 'hidden',
     boxShadow: tokens.shadow8,
