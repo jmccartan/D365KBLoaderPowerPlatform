@@ -201,11 +201,16 @@ project folder with connection-reference metadata.
 ```powershell
 cd D365KBLoader      # if you aren't already there
 pac code init `
-  --name        "D365 KB Loader" `
-  --description "Bulk-load SharePoint docs into D365 Knowledgebase" `
-  --build-folder dist `
-  --entry-file  index.html
+  --displayName    "D365 KB Loader" `
+  --description    "Bulk-load SharePoint docs into D365 Knowledgebase" `
+  --buildPath      dist `
+  --fileEntryPoint index.html
 ```
+
+> **Heads up:** flag names changed in pac CLI 2.6 — use `--displayName` (not
+> `--name`), `--buildPath` (not `--build-folder`), and `--fileEntryPoint`
+> (not `--entry-file`). Run `pac code init --help` to confirm what your
+> version expects.
 
 Commit the new `.power/` folder to git so collaborators inherit the same
 app identity.
