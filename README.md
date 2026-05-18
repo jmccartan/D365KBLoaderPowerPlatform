@@ -96,129 +96,265 @@ npm run dev
 Browse to <http://localhost:3000>. Mock mode is on by default — you'll see four
 sample files end-to-end without touching SharePoint or Dataverse.
 
-## Wire up real connectors
+## Setup &amp; install: GitHub → Power Platform environment
 
-### Prerequisites
+This walkthrough takes you from a fresh machine to a running Code App in your
+target environment. Allow ~30 minutes the first time.
 
-**Local tooling**
+### 0. Get the source
 
-- **Node.js 18 LTS or newer** (Vite 5 / React 18 requirement).
-- **.NET SDK 6+** — needed to install the Power Platform CLI as a global tool.
-- **Power Platform CLI (`pac`)** installed locally. Install via:
-  ```powershell
-  dotnet tool install --global Microsoft.PowerApps.CLI.Tool
-  ```
-  Or use the [winget](https://learn.microsoft.com/power-platform/developer/cli/introduction#install-power-platform-cli) /
-  MSI installer documented by Microsoft.
+```powershell
+git clone https://github.com/jmccartan/D365KBLoaderPowerPlatform.git
+cd D365KBLoaderPowerPlatform
+```
 
-**Identity & environment**
+### 1. Install local tooling
 
-- A signed-in account with **Power Platform admin** (or equivalent
-  environment-maker) privileges in the target environment. `pac code init` and
-  `pac code push` both write into Dataverse, and `pac code add-data-source`
-  registers connector references — these all require admin-level permissions.
-- **Code Apps preview must be enabled** on the target environment
-  (Power Platform Admin Center → Environments → *your env* → Settings →
-  Product → Features → **Code Apps**). Without this flag, `pac code init`
-  and `pac code push` will fail.
-- A Dataverse environment that includes the **Dynamics 365 Customer Service**
-  (or another Knowledge-enabled) solution, so the `knowledgearticle` table
-  exists.
+You need **Node.js 18 LTS+**, **.NET SDK 6+**, and the **Power Platform CLI**.
 
-**Licensing**
+```powershell
+# Verify what you have
+node --version          # expect v18.x or v20.x
+dotnet --list-sdks      # expect 6.x or 8.x
 
-- The maker and all end-users need a **Power Apps Premium** (or per-app)
-  license. Code Apps use the Dataverse and SharePoint connectors which are
-  premium.
+# Install pac CLI as a .NET global tool (recommended)
+dotnet tool install --global Microsoft.PowerApps.CLI.Tool
 
-### Steps
+# Or via winget
+winget install Microsoft.PowerAppsCLI
 
-1. **Authenticate** to the target environment:
+# Verify
+pac --version
+```
 
-   ```powershell
-   pac auth create --environment <ENV_URL_OR_ID>
-   ```
+If `pac` isn't on your PATH after the dotnet install, add
+`%USERPROFILE%\.dotnet\tools` to your PATH and reopen PowerShell.
 
-2. **Initialize the Code App** (only once):
+### 2. Verify the app locally (mock mode)
 
-   ```powershell
-   cd D365KBLoader
-   pac code init -n "D365 KB Loader" -d "Bulk-load SharePoint docs into D365 Knowledgebase" -b dist -f index.html
-   ```
+Before touching anything in Power Platform, run the app against mock data so
+you can see the UI behave end-to-end.
 
-3. **Add data sources** — this generates strongly-typed clients under `src/Models/`:
+```powershell
+cd D365KBLoader
+npm install
+npm run dev
+```
 
-   ```powershell
-   pac code add-data-source -a shared_sharepointonline
-   pac code add-data-source -a shared_commondataserviceforapps -t knowledgearticle
-   ```
+Open <http://localhost:3000>. You should see the hero header with the
+**Environment** chip, the Configure step with sample SharePoint sites, and
+four mock files (`Reset-Password.html`, `VPN-Setup.docx`, …). Walk through
+Configure → Scan → Review → Load to confirm the pipeline works on your
+machine. Hit `Ctrl+C` to stop the dev server.
 
-4. **Wire the generated clients** into
-   `src/services/PowerPlatformKbLoaderService.ts` — replace the
-   `loadSharePointClient` and `loadDataverseClient` stubs with the actual
-   imports the CLI generated. The TODO comments mark the spots. The real
-   service uses these connector actions:
-   - **SharePoint** — `GetAllSites` (site browser), `GetFolderItemsByPath`
-     (folder browser), `GetFolderFilesByPath` (scan), `GetFileContent`
-     (download), `CreateFile` (upload the run report + extracted images).
-   - **Dataverse** — `Create` and `Update` on `knowledgearticle` (load),
-     `ListRecords` on `knowledgearticle` filtered to published / draft
-     (overlap scan + duplicate detection), `RetrieveProvisionedLanguages`
-     (language picker), `subject` table list (subject picker), `WhoAmI`
-     and `systemuser` retrieve (current-user identity for audit logging),
-     **Global Discovery Service** for environment enumeration,
-     `EntityDefinitions(LogicalName='knowledgearticle')` for the
-     knowledgebase availability probe.
-   - **Outlook (optional)** — `SendEmailV2` for the **Email report** button.
-   - **(Optional) Copilot suggestions** — swap `suggestEdits()` for an
-     Azure OpenAI custom connector or a Dataverse AI Prompt action (see
-     [Copilot suggestions](#copilot-suggestions-article-review) below).
+### 3. Prepare the target Power Platform environment
 
-5. **Switch to real mode** — in `.env.local`:
+You need an **environment-maker** account on the target Dataverse environment
+and **Power Platform admin** to flip the feature flag below.
 
-   ```
-   VITE_USE_REAL_CONNECTORS=true
-   ```
+1. Sign into the **Power Platform Admin Center**
+   (<https://admin.powerplatform.microsoft.com>).
+2. **Environments** → pick your target → **Settings** → **Product** →
+   **Features**.
+3. Turn **Code Apps** **On**. Save. Without this, `pac code init` errors
+   with a feature-not-enabled message.
+4. In the same env, confirm the **Dynamics 365 Customer Service** (or any
+   Knowledge-enabled) solution is installed — this is what creates the
+   `knowledgearticle` table. If it's missing, install it from
+   **Resources → Dynamics 365 apps** before going further.
+5. Make sure the user who will run the app has:
+   - A **Power Apps Premium** (or per-app) license.
+   - A Dataverse security role that grants **Create / Write** on
+     `knowledgearticle` (e.g. *Customer Service Representative*,
+     *Knowledge Manager*, or a custom role).
 
-6. **Build & push**:
+### 4. Authenticate the pac CLI
 
-   ```powershell
-   npm run build
-   pac code push
-   ```
+Grab the environment's URL from PPAC (something like
+`https://contoso.crm.dynamics.com`) and run:
 
-   The CLI prints the published app URL.
+```powershell
+pac auth create --environment https://contoso.crm.dynamics.com
+```
 
-   > **Note:** there is no SharePoint list to create. Per-run reports are
-   > written directly to the source folder as `.xlsx` files.
+A browser window opens — sign in with the env-maker account. Confirm:
 
-### After deployment
+```powershell
+pac auth list      # shows the active profile
+pac org who        # confirms which env you're targeting
+```
 
-- **Authorize connections** — first time the app runs, Power Apps will prompt
-  the user to sign in to the SharePoint and Dataverse connectors. They must
-  consent before the app can list sites or create articles.
-- **Share the app** — from the Power Apps maker portal
-  (`make.powerapps.com`), open the published app and share it with the users
-  or AAD security group that should be able to run it.
-- **End-user permissions** — each runner needs:
-  - **Contribute** (or higher) on the target SharePoint folder, so the
-    Excel report can be uploaded.
-  - A Dataverse security role that grants **Create** on `knowledgearticle`
-    (e.g., *Customer Service Representative* or *Knowledge Manager*).
-  - A **Power Apps Premium** license (see Prerequisites).
+### 5. Initialize the Code App
+
+This step registers the app in the environment and writes a `.power/`
+project folder with connection-reference metadata.
+
+```powershell
+cd D365KBLoader      # if you aren't already there
+pac code init `
+  --name        "D365 KB Loader" `
+  --description "Bulk-load SharePoint docs into D365 Knowledgebase" `
+  --build-folder dist `
+  --entry-file  index.html
+```
+
+Commit the new `.power/` folder to git so collaborators inherit the same
+app identity.
+
+### 6. Add connector data sources
+
+Each of these registers a connection reference and generates a typed client
+under `src/Models/` that the real service will import. Run **all three**
+(Outlook is optional but powers the Email-report feature):
+
+```powershell
+pac code add-data-source -a shared_sharepointonline
+pac code add-data-source -a shared_commondataserviceforapps -t knowledgearticle
+pac code add-data-source -a shared_office365              # for SendEmailV2
+```
+
+For the **subject** picker and language list, also expose the `subject` and
+`languagelocale` tables:
+
+```powershell
+pac code add-data-source -a shared_commondataserviceforapps -t subject
+pac code add-data-source -a shared_commondataserviceforapps -t languagelocale
+```
+
+After running these, check that `src/Models/` (or whatever folder the CLI
+chose for your `pac` version) contains the generated client classes.
+
+### 7. Wire the generated clients into the real service
+
+Open `src/services/PowerPlatformKbLoaderService.ts` and find the two helpers
+at the bottom of the file:
+
+```ts
+async function loadSharePointClient(): Promise<any> { throw new Error(...) }
+async function loadDataverseClient(): Promise<any>  { throw new Error(...) }
+```
+
+Replace each `throw` with a real import. The exact module names depend on
+your `pac` version — read the generated files to confirm. Example:
+
+```ts
+async function loadSharePointClient() {
+  const mod = await import('../Models/SharePointOnlineService');
+  return new mod.SharePointOnlineService();
+}
+
+async function loadDataverseClient() {
+  const ka  = await import('../Models/knowledgearticleService');
+  const sub = await import('../Models/subjectService');
+  const lang= await import('../Models/languagelocaleService');
+  return {
+    knowledgearticle: ka.knowledgearticleService,
+    subject:          { list: sub.subjectService.list },
+    org:              { retrieveProvisionedLanguages: lang.languagelocaleService.retrieveProvisionedLanguages },
+    whoAmI:           ka.knowledgearticleService.whoAmI,
+    systemuser:       ka.knowledgearticleService.systemuser,
+    discovery:        ka.knowledgearticleService.discovery,
+    fetch:            (url: string) => fetch(url, { headers: { Authorization: `Bearer ${await ka.knowledgearticleService.getToken()}` } }),
+  };
+}
+
+async function loadEnvBaseUrl() {
+  // Most generated clients expose the env URL — example field name; check yours.
+  return (await import('../Models/knowledgearticleService')).knowledgearticleService.environmentUrl;
+}
+```
+
+Tip: the connector-action names referenced in the methods above
+(`GetAllSites`, `GetFolderItemsByPath`, `CreateFile`, etc.) come straight
+from the connector schema. If your generated client wraps them under
+slightly different names (camelCased, etc.), update the method bodies in
+`PowerPlatformKbLoaderService.ts` accordingly.
+
+### 8. Switch the app to real mode
+
+Create `D365KBLoader/.env.local`:
+
+```
+VITE_USE_REAL_CONNECTORS=true
+```
+
+Restart `npm run dev` if it's running — Vite only reads env vars at startup.
+
+### 9. Build &amp; push
+
+```powershell
+npm run build
+pac code push
+```
+
+The CLI prints the **published app URL**. Open it in a browser — you'll be
+prompted to authorize the SharePoint and Dataverse connections the first
+time. Allow them.
+
+### 10. Share with end-users
+
+1. Go to <https://make.powerapps.com> and switch to the target environment
+   (top-right env picker).
+2. **Apps** → find **D365 KB Loader** → click the **⋯** menu → **Share**.
+3. Add the AAD user(s) or security group, set **Co-owner** or **User**, and
+   save.
+
+Each end-user, on first run, will be prompted to authorize the connectors
+under their own identity.
+
+### 11. (Optional) Promote between environments with a managed solution
+
+`pac code push` deploys directly into one environment. To move the app from
+**Dev → Test → Prod**:
+
+```powershell
+# In Dev
+pac solution init --publisher-name kbloader --publisher-prefix kbl
+pac solution add-reference --path .                # add the Code App
+pac solution pack --zipfile bin\KbLoader_managed.zip --folder src --packagetype Managed
+
+# In each downstream env
+pac auth create --environment <TARGET_ENV>
+pac solution import --path bin\KbLoader_managed.zip --publish-changes
+```
+
+After import in Test/Prod, re-authorize the SharePoint and Dataverse
+connections — connection references don't carry credentials across
+environments.
+
+### Quick sanity checklist
+
+- [ ] `pac org who` returns the right environment
+- [ ] `src/Models/` contains generated SharePoint + Dataverse clients
+- [ ] `.env.local` has `VITE_USE_REAL_CONNECTORS=true`
+- [ ] `npm run build` exits cleanly
+- [ ] `pac code push` printed a URL
+- [ ] App opens, authorizes connectors, the **Environment** chip shows a
+      green check for the chosen env
+- [ ] Scan returns real SharePoint files
+- [ ] Load creates a `knowledgearticle` row (verify in
+      `https://<env>.crm.dynamics.com` → **Knowledge Articles**)
+
+---
 
 ## Troubleshooting
 
-- **`.env.local` changes don't take effect** — Vite reads env vars at startup;
-  stop and restart `npm run dev`.
-- **`pac code init` fails with a feature-not-enabled error** — Code Apps
-  preview isn't turned on for the environment (see Prerequisites).
-- **Connector 401 / 403 after push** — open the app once in Power Apps to
-  authorize each connection, or re-share the connection from the maker portal.
-- **Empty folder browser** — verify the signed-in user has access to the
-  SharePoint site; the connector silently returns an empty list if not.
-- **Report didn't upload** — check the runner has Contribute on the folder.
-  The in-app Progress tab surfaces the underlying SharePoint error.
+| Symptom | Likely cause &amp; fix |
+|---------|------------------|
+| `pac auth create` opens browser then errors | Pop-up blocker or stale token. Try `pac auth clear` then re-run. |
+| `pac code init` says "Feature not enabled" | Flip **Code Apps** to On in PPAC → Settings → Product → Features. |
+| `pac code add-data-source` fails with "User does not have permission" | Your account isn't an environment-maker. Have an admin grant the *Environment Maker* role in PPAC. |
+| TypeScript build errors after running `add-data-source` | Generated client names don't match the imports in `PowerPlatformKbLoaderService.ts`. Open `src/Models/` and reconcile the class names. |
+| `.env.local` changes ignored | Vite reads env vars at startup — restart `npm run dev` / re-run `npm run build`. |
+| `pac code push` succeeds, but app shows blank screen | Check the browser console; the most common cause is a generated-client import path mismatch. |
+| Connector 401 / 403 after push | Open the app once in <https://make.powerapps.com> to authorize each connection under the runner's identity. |
+| Environment chip shows ⚠ "Check failed" for every env | The signed-in user can't reach the Global Discovery Service. Confirm the Dataverse connection in the maker portal has the user consented. |
+| Environment shows ⛔ "Knowledgebase not installed" | The selected env doesn't have the Customer Service / Knowledge Management solution. Install it from PPAC → Resources → Dynamics 365 apps, or pick a different env. |
+| Empty SharePoint folder browser | Either the user lacks access, or the connection is targeting the wrong tenant. Check the SharePoint connection in `make.powerapps.com → Connections`. |
+| Excel report didn't upload | Runner needs **Contribute** on the SharePoint target folder. The in-app Progress tab surfaces the underlying error. |
+| Load fails with "Required field missing: subjectid / languagelocaleid" | Your environment marks these as required. Set defaults in the **Article defaults** card before scanning. |
+| PDF text comes back garbled or empty | Image-only PDF — the app emits a per-page warning. Run OCR on the source first. |
+| Email-report button does nothing | Outlook data source wasn't added. Run `pac code add-data-source -a shared_office365` then re-push. |
 
 ## Field mapping (knowledgearticle)
 
@@ -394,24 +530,8 @@ same connectors and governance as canvas apps.
 
 ## Promoting between environments (managed solutions)
 
-`pac code push` deploys directly into one environment. To move the app across
-**Dev → Test → Prod**, wrap it in a managed solution:
-
-```powershell
-# In Dev — create a solution that contains the published Code App
-pac solution init --publisher-name kbloader --publisher-prefix kbl
-pac solution add-reference --path .                           # add the Code App
-pac solution pack --zipfile bin\KbLoader_unmanaged.zip --folder src --packagetype Unmanaged
-pac solution pack --zipfile bin\KbLoader_managed.zip   --folder src --packagetype Managed
-
-# In each downstream env — authenticate, then import
-pac auth create --environment <TARGET_ENV>
-pac solution import --path bin\KbLoader_managed.zip --publish-changes
-```
-
-> Tip: in Test/Prod, re-authorize the SharePoint and Dataverse connections
-> after import — connection references don't carry credentials across
-> environments.
+See **Step 11** of the [Setup &amp; install](#setup--install-github--power-platform-environment)
+guide above.
 
 ## License
 
