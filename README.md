@@ -217,12 +217,8 @@ This step registers the app in the environment and writes a `.power/`
 project folder with connection-reference metadata.
 
 ```powershell
-cd D365KBLoader      # if you aren't already there
-pac code init `
-  --displayName    "D365 KB Loader" `
-  --description    "Bulk-load SharePoint docs into D365 Knowledgebase" `
-  --buildPath      dist `
-  --fileEntryPoint index.html
+cd D365KBLoader
+pac code init --displayName "D365 KB Loader" --description "Bulk-load SharePoint docs into D365 Knowledgebase" --buildPath dist --fileEntryPoint index.html
 ```
 
 > **Heads up:** flag names changed in pac CLI 2.6 — use `--displayName` (not
@@ -597,11 +593,7 @@ npm install
 npm run build
 
 # 3. Register the app (creates power.config.json + .power\)
-pac code init `
-  --displayName    "D365 KB Loader" `
-  --description    "Bulk-load SharePoint docs into D365 Knowledgebase" `
-  --buildPath      dist `
-  --fileEntryPoint index.html
+pac code init --displayName "D365 KB Loader" --description "Bulk-load SharePoint docs into D365 Knowledgebase" --buildPath dist --fileEntryPoint index.html
 
 # 4. Add the connectors the app needs
 pac code add-data-source -a shared_sharepointonline
