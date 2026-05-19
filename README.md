@@ -573,6 +573,57 @@ same connectors and governance as canvas apps.
 See **Step 11** of the [Setup &amp; install](#setup--install-github--power-platform-environment)
 guide above.
 
+## Quick start (TL;DR)
+
+For an experienced Power Platform dev who's already done the full walkthrough
+once and just wants to redeploy / spin up a fresh env. Skips explanation —
+see [Setup &amp; install](#setup--install-github--power-platform-environment)
+for the full version.
+
+**Prereqs (one-time per machine):** Node 18+, .NET SDK 6+, `pac` CLI,
+**Code Apps** toggled On in PPAC for the target env, signed-in user has
+Environment Maker + write access to `knowledgearticle`.
+
+```powershell
+# 0. Clone
+git clone https://github.com/jmccartan/D365KBLoaderPowerPlatform.git
+cd D365KBLoaderPowerPlatform\D365KBLoader
+
+# 1. Auth to the target env (browser sign-in)
+pac auth create --environment https://<your-env>.crm.dynamics.com
+
+# 2. Install + build
+npm install
+npm run build
+
+# 3. Register the app (creates power.config.json + .power\)
+pac code init `
+  --displayName    "D365 KB Loader" `
+  --description    "Bulk-load SharePoint docs into D365 Knowledgebase" `
+  --buildPath      dist `
+  --fileEntryPoint index.html
+
+# 4. Add the connectors the app needs
+pac code add-data-source -a shared_sharepointonline
+pac code add-data-source -a shared_commondataserviceforapps -t knowledgearticle
+pac code add-data-source -a shared_commondataserviceforapps -t subject
+pac code add-data-source -a shared_commondataserviceforapps -t languagelocale
+pac code add-data-source -a shared_office365      # optional, for Email-report
+
+# 5. Flip to real connectors and push
+"VITE_USE_REAL_CONNECTORS=true" | Out-File -Encoding ascii .env.local
+npm run build
+pac code push
+```
+
+`pac code push` prints the published app URL. Open it once in
+<https://make.powerapps.com> to authorize each connection, then share the
+app with end-users from **Apps → ⋯ → Share**.
+
+> Run **every** command above from `D365KBLoader\`. If `pac code …` says
+> `power.config.json not found`, you're in the wrong directory or skipped
+> step 3.
+
 ## License
 
 [MIT](LICENSE)
