@@ -104,6 +104,22 @@ sample files end-to-end without touching SharePoint or Dataverse.
 This walkthrough takes you from a fresh machine to a running Code App in your
 target environment. Allow ~30 minutes the first time.
 
+> **Where to run each command**
+> - Steps 0–1 run from anywhere (or the repo root after cloning).
+> - **Every other step, including all `npm` and `pac code` commands, runs
+>   from `D365KBLoader\`** — that's the folder that holds `package.json` and
+>   (after step 5) `power.config.json`. If `pac code …` errors with
+>   `power.config.json not found`, you're in the wrong directory or you
+>   skipped `pac code init`.
+> - `dist\` is created by `npm run build`. `pac code init` only *records*
+>   the build path; the folder must actually exist before `pac code push`.
+
+> **Heads up — CLI is changing.** Microsoft is replacing `pac code …` with
+> a new npm-based CLI shipped in `@microsoft/power-apps` (commands become
+> `npx power-apps init`, `npx power-apps push`, etc.). The `pac code`
+> commands below still work today but will be deprecated. See
+> <https://learn.microsoft.com/en-us/power-apps/developer/code-apps/how-to/npm-quickstart>.
+
 ### 0. Get the source
 
 ```powershell
@@ -219,11 +235,14 @@ app identity.
 
 ### 6. Add connector data sources
 
+Run from `D365KBLoader\` (where `power.config.json` now lives).
+
 Each of these registers a connection reference and generates a typed client
 under `src/Models/` that the real service will import. Run **all three**
 (Outlook is optional but powers the Email-report feature):
 
 ```powershell
+cd D365KBLoader       # if you aren't already there
 pac code add-data-source -a shared_sharepointonline
 pac code add-data-source -a shared_commondataserviceforapps -t knowledgearticle
 pac code add-data-source -a shared_office365              # for SendEmailV2
@@ -298,7 +317,11 @@ Restart `npm run dev` if it's running — Vite only reads env vars at startup.
 
 ### 9. Build &amp; push
 
+Run from `D365KBLoader\`. `npm run build` produces the `dist\` folder that
+`pac code push` uploads; without it, push has nothing to publish.
+
 ```powershell
+cd D365KBLoader       # if you aren't already there
 npm run build
 pac code push
 ```
@@ -359,6 +382,7 @@ environments.
 |---------|------------------|
 | `pac auth create` opens browser then errors | Pop-up blocker or stale token. Try `pac auth clear` then re-run. |
 | `pac code init` says "Feature not enabled" | Flip **Code Apps** to On in PPAC → Settings → Product → Features. |
+| `pac code add-data-source` fails with `power.config.json not found` | You're not in `D365KBLoader\`, or you skipped `pac code init`. `cd D365KBLoader` and confirm `power.config.json` exists; if not, re-run step 5. |
 | `pac code add-data-source` fails with "User does not have permission" | Your account isn't an environment-maker. Have an admin grant the *Environment Maker* role in PPAC. |
 | TypeScript build errors after running `add-data-source` | Generated client names don't match the imports in `PowerPlatformKbLoaderService.ts`. Open `src/Models/` and reconcile the class names. |
 | `.env.local` changes ignored | Vite reads env vars at startup — restart `npm run dev` / re-run `npm run build`. |
