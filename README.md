@@ -580,31 +580,74 @@ for the full version.
 **Code Apps** toggled On in PPAC for the target env, signed-in user has
 Environment Maker + write access to `knowledgearticle`.
 
+Each command in its own copy block — click the copy button on whichever
+step you need.
+
+**0. Clone**
+
 ```powershell
-# 0. Clone
 git clone https://github.com/jmccartan/D365KBLoaderPowerPlatform.git
+```
+
+```powershell
 cd D365KBLoaderPowerPlatform\D365KBLoader
+```
 
-# 1. Auth to the target env (browser sign-in)
+**1. Auth to the target env** (replace `<your-env>` with your env subdomain)
+
+```powershell
 pac auth create --environment https://<your-env>.crm.dynamics.com
+```
 
-# 2. Install + build
+**2. Install + build**
+
+```powershell
 npm install
-npm run build
+```
 
-# 3. Register the app (creates power.config.json + .power\)
+```powershell
+npm run build
+```
+
+**3. Register the app**
+
+```powershell
 pac code init --displayName "D365 KB Loader" --description "Bulk-load SharePoint docs into D365 Knowledgebase" --buildPath dist --fileEntryPoint index.html
+```
 
-# 4. Add the connectors the app needs
+**4. Add connectors**
+
+```powershell
 pac code add-data-source -a shared_sharepointonline
-pac code add-data-source -a shared_commondataserviceforapps -t knowledgearticle
-pac code add-data-source -a shared_commondataserviceforapps -t subject
-pac code add-data-source -a shared_commondataserviceforapps -t languagelocale
-pac code add-data-source -a shared_office365      # optional, for Email-report
+```
 
-# 5. Flip to real connectors and push
+```powershell
+pac code add-data-source -a shared_commondataserviceforapps -t knowledgearticle
+```
+
+```powershell
+pac code add-data-source -a shared_commondataserviceforapps -t subject
+```
+
+```powershell
+pac code add-data-source -a shared_commondataserviceforapps -t languagelocale
+```
+
+```powershell
+pac code add-data-source -a shared_office365
+```
+
+**5. Flip to real connectors and push**
+
+```powershell
 "VITE_USE_REAL_CONNECTORS=true" | Out-File -Encoding ascii .env.local
+```
+
+```powershell
 npm run build
+```
+
+```powershell
 pac code push
 ```
 
