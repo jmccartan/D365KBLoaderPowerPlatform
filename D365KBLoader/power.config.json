@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "appId": "a766001e-69a5-4f9d-9e26-ff63a5f85c66",
+  "appDisplayName": "D365 KB Loader",
+  "region": "prod",
+  "environmentId": "9f0cea31-d244-eb65-a1ea-7175d8464b01",
+  "description": "Bulk-load SharePoint docs into D365 Knowledgebase",
+  "buildPath": "dist",
+  "buildEntryPoint": "index.html",
+  "localAppUrl": "http://localhost:3000",
+  "logoPath": "Default",
+  "connectionReferences": {
+    "348876d9-5a1b-4bbb-aca9-e9a807f431e4": {
+      "id": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+      "displayName": "Microsoft Dataverse",
+      "dataSources": [
+        "commondataserviceforapps"
+      ],
+      "authenticationType": "Oauth",
+      "dataSets": {}
+    }
+  },
+  "databaseReferences": {
+    "default.cds": {
+      "dataSources": {
+        "knowledgearticles": {
+          "entitySetName": "knowledgearticles",
+          "logicalName": "knowledgearticle",
+          "isHidden": false
+        },
+        "subjects": {
+          "entitySetName": "subjects",
+          "logicalName": "subject",
+          "isHidden": false
+        },
+        "languages": {
+          "entitySetName": "languagelocale",
+          "logicalName": "languagelocale",
+          "isHidden": false
+        }
+      },
+      "environmentVariableName": ""
+    }
+  }
+}
