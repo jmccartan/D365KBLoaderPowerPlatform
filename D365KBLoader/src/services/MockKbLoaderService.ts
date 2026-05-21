@@ -20,8 +20,8 @@ function makeMockFiles(folder: string = '/Shared Documents/KB'): SourceFile[] {
   const suffix = variant && variant !== 'KB' ? `-${variant.toLowerCase()}` : '';
   return [
     { id: `mock-1${suffix}`, name: `Reset-Password${suffix}.html`, path: `${f}/Reset-Password${suffix}.html`, size: 1024, modified: new Date().toISOString(), kind: 'html' },
-    { id: `mock-2${suffix}`, name: `VPN-Setup${suffix}.docx`, path: `${f}/VPN-Setup${suffix}.docx`, size: 22048, modified: new Date().toISOString(), kind: 'docx' },
-    { id: `mock-3${suffix}`, name: `Onboarding-Checklist${suffix}.docx`, path: `${f}/Onboarding-Checklist${suffix}.docx`, size: 8192, modified: new Date().toISOString(), kind: 'docx' },
+    { id: `mock-2${suffix}`, name: `VPN-Setup${suffix}.html`, path: `${f}/VPN-Setup${suffix}.html`, size: 22048, modified: new Date().toISOString(), kind: 'html' },
+    { id: `mock-3${suffix}`, name: `Onboarding-Checklist${suffix}.html`, path: `${f}/Onboarding-Checklist${suffix}.html`, size: 8192, modified: new Date().toISOString(), kind: 'html' },
     { id: `mock-4${suffix}`, name: `Printer-Troubleshooting${suffix}.htm`, path: `${f}/Printer-Troubleshooting${suffix}.htm`, size: 3050, modified: new Date().toISOString(), kind: 'html' },
   ];
 }
@@ -144,22 +144,27 @@ export class MockKbLoaderService implements KbLoaderService {
     writeProfiles(readProfiles().filter(profile => profile.id !== id));
   }
 
-  async createKnowledgeArticle(article: ProcessedArticle): Promise<{ id: string; url?: string }> {
+  async createKnowledgeArticle(article: ProcessedArticle, _config?: KbConfig, environment?: PowerPlatformEnvironment): Promise<{ id: string; url?: string }> {
     await delay(500);
     if (article.title.toLowerCase().includes('fail')) throw new Error('Simulated failure');
     const id = `mock-ka-${Math.random().toString(36).slice(2, 10)}`;
-    return { id, url: `https://contoso.crm.dynamics.com/main.aspx?etn=knowledgearticle&id=${id}` };
+    const baseUrl = environment?.url ?? 'https://contoso.crm.dynamics.com';
+    return { id, url: `${baseUrl.replace(/\/$/, '')}/main.aspx?etn=knowledgearticle&id=${id}` };
   }
 
-  async updateKnowledgeArticle(_existingId: string, article: ProcessedArticle): Promise<void> {
+  async updateKnowledgeArticle(_existingId: string, article: ProcessedArticle, _environment?: PowerPlatformEnvironment): Promise<void> {
     await delay(400);
     if (article.title.toLowerCase().includes('fail')) throw new Error('Simulated update failure');
   }
 
-  async findArticleByTitle(title: string): Promise<ExistingKbArticle | undefined> {
+  async findArticleByTitle(title: string, environment?: PowerPlatformEnvironment): Promise<ExistingKbArticle | undefined> {
     await delay(120);
     const normalizedTitle = title.trim().toLowerCase();
-    return MOCK_EXISTING_KB.find(article => article.title.trim().toLowerCase() === normalizedTitle);
+    const article = MOCK_EXISTING_KB.find(candidate => candidate.title.trim().toLowerCase() === normalizedTitle);
+    if (!article || !environment?.url) {
+      return article;
+    }
+    return { ...article, url: `${environment.url.replace(/\/$/, '')}/main.aspx?etn=knowledgearticle&id=${article.id}` };
   }
 
   async listLanguages(): Promise<KbLanguage[]> {
@@ -188,9 +193,12 @@ export class MockKbLoaderService implements KbLoaderService {
     return buildMockSuggestion(article);
   }
 
-  async findOverlaps(articles: ProcessedArticle[]): Promise<Record<string, OverlapMatch[]>> {
+  async findOverlaps(articles: ProcessedArticle[], environment?: PowerPlatformEnvironment): Promise<Record<string, OverlapMatch[]>> {
     await delay(500);
-    return scoreOverlaps(articles, MOCK_EXISTING_KB);
+    const existing = environment?.url
+      ? MOCK_EXISTING_KB.map(article => ({ ...article, url: `${environment.url.replace(/\/$/, '')}/main.aspx?etn=knowledgearticle&id=${article.id}` }))
+      : MOCK_EXISTING_KB;
+    return scoreOverlaps(articles, existing);
   }
 }
 

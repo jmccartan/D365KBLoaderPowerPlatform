@@ -53,6 +53,9 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
 
   async listSubjects(parentId?: string): Promise<KbSubject[]> {
     const dv = await loadDataverseClient();
+    if (parentId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parentId)) {
+      throw new Error('listSubjects: parentId must be a GUID.');
+    }
     const res = await dv.subject?.list?.({
       $select: 'subjectid,title,_parentsubject_value',
       $filter: parentId ? `_parentsubject_value eq ${parentId}` : '_parentsubject_value eq null',
@@ -66,8 +69,8 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
     } as KbSubject));
   }
 
-  async findArticleByTitle(title: string): Promise<ExistingKbArticle | undefined> {
-    const dv = await loadDataverseClient();
+  async findArticleByTitle(title: string, environment?: PowerPlatformEnvironment): Promise<ExistingKbArticle | undefined> {
+    const dv = await loadDataverseClient(environment);
     const normalized = title.trim().replace(/\s+/g, ' ');
     const escaped = normalized.replace(/'/g, "''").toLowerCase();
     // Case-insensitive whitespace-tolerant match — OData supports tolower() and
@@ -79,11 +82,15 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
     });
     const r = res?.value?.[0];
     if (!r) return undefined;
-    return { id: r.knowledgearticleid, title: r.title, modifiedOn: r.modifiedon };
+    const envBase = await loadEnvBaseUrl(environment);
+    const url = envBase
+      ? `${envBase.replace(/\/$/, '')}/main.aspx?etn=knowledgearticle&id=${r.knowledgearticleid}&pagetype=entityrecord`
+      : undefined;
+    return { id: r.knowledgearticleid, title: r.title, modifiedOn: r.modifiedon, url };
   }
 
-  async updateKnowledgeArticle(existingId: string, article: ProcessedArticle): Promise<void> {
-    const dv = await loadDataverseClient();
+  async updateKnowledgeArticle(existingId: string, article: ProcessedArticle, environment?: PowerPlatformEnvironment): Promise<void> {
+    const dv = await loadDataverseClient(environment);
     await dv.knowledgearticle.update(existingId, {
       title: article.title,
       content: article.html,
@@ -246,8 +253,8 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
     writeProfilesFallback(readProfilesFallback().filter(profile => profile.id !== id));
   }
 
-  async createKnowledgeArticle(article: ProcessedArticle, config?: KbConfig): Promise<{ id: string; url?: string }> {
-    const dv = await loadDataverseClient();
+  async createKnowledgeArticle(article: ProcessedArticle, config?: KbConfig, environment?: PowerPlatformEnvironment): Promise<{ id: string; url?: string }> {
+    const dv = await loadDataverseClient(environment);
     const langId = article.languageId ?? config?.defaultLanguageId;
     const subjId = article.subjectId ?? config?.defaultSubjectId;
     const publish = article.publish ?? config?.publishOnLoad ?? false;
@@ -262,7 +269,7 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
       ...(subjId ? { 'subjectid@odata.bind': `/subjects(${subjId})` } : {}),
     });
     const id = created.knowledgearticleid ?? created.id;
-    const envBase = await loadEnvBaseUrl();
+    const envBase = await loadEnvBaseUrl(environment);
     const url = envBase
       ? `${envBase.replace(/\/$/, '')}/main.aspx?etn=knowledgearticle&id=${id}&pagetype=entityrecord`
       : undefined;
@@ -309,16 +316,16 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
     return buildMockSuggestion(article);
   }
 
-  async findOverlaps(articles: ProcessedArticle[]): Promise<Record<string, OverlapMatch[]>> {
+  async findOverlaps(articles: ProcessedArticle[], environment?: PowerPlatformEnvironment): Promise<Record<string, OverlapMatch[]>> {
     // Fetch a candidate pool of published / draft knowledgearticles from
     // Dataverse and score them client-side. For very large KBs you'd push
     // server-side relevance search instead (Dataverse `relevance search` or
     // a Cognitive Search index), but for typical KBs a few hundred rows is fine.
-    const dv = await loadDataverseClient();
+    const dv = await loadDataverseClient(environment);
     const res = await dv.knowledgearticle.list?.({
       $select: 'knowledgearticleid,title,description,modifiedon',
       $top: 500,
-      $filter: "statuscode eq 3 or statecode eq 0", // published or draft
+      $filter: "statecode eq 0 or statecode eq 3", // draft or published
     });
     const candidates: ExistingKbArticle[] = (res?.value ?? []).map((r: any) => ({
       id: r.knowledgearticleid,
@@ -342,17 +349,20 @@ async function loadSharePointClient(): Promise<any> {
   );
 }
 
-async function loadDataverseClient(): Promise<any> {
+async function loadDataverseClient(environment?: PowerPlatformEnvironment): Promise<any> {
   // Example after generation:
   //   const mod = await import('../Models/knowledgearticleService');
   //   return { knowledgearticle: mod.knowledgearticleService };
   throw new Error(
     'Dataverse client not wired up. Run `pac code add-data-source -a shared_commondataserviceforapps -t knowledgearticle` ' +
-    'and update PowerPlatformKbLoaderService.ts with the generated import.'
+    `and update PowerPlatformKbLoaderService.ts with the generated import${environment ? ` for ${environment.url}` : ''}.`
   );
 }
 
-async function loadEnvBaseUrl(): Promise<string | undefined> {
+async function loadEnvBaseUrl(environment?: PowerPlatformEnvironment): Promise<string | undefined> {
+  if (environment?.url) {
+    return environment.url;
+  }
   // The published Code App knows its Dataverse host from the connection
   // metadata Power Platform injects at runtime. Replace this with whatever
   // value the generated client exposes (e.g. dv.config.environmentUrl).

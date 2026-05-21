@@ -20,9 +20,9 @@ export interface KbLoaderService {
   /** Tree-style subject lookup. Pass parentId=undefined for root nodes. */
   listSubjects(parentId?: string): Promise<KbSubject[]>;
   /** Look up an existing article by exact title (used for idempotency). */
-  findArticleByTitle(title: string): Promise<ExistingKbArticle | undefined>;
+  findArticleByTitle(title: string, environment?: PowerPlatformEnvironment): Promise<ExistingKbArticle | undefined>;
   /** Update an existing article (used when duplicateAction = 'update-existing'). */
-  updateKnowledgeArticle(existingId: string, article: ProcessedArticle): Promise<void>;
+  updateKnowledgeArticle(existingId: string, article: ProcessedArticle, environment?: PowerPlatformEnvironment): Promise<void>;
   /** Discover SharePoint sites the user has access to (for the Browse dialog). */
   listSites(): Promise<SharePointSite[]>;
   /** List sub-folders of the given path within a site (folderPath '/' = root). */
@@ -35,7 +35,7 @@ export interface KbLoaderService {
   listProfiles(): Promise<import('../types').SavedScanProfile[]>;
   saveProfile(profile: import('../types').SavedScanProfile): Promise<import('../types').SavedScanProfile>;
   deleteProfile(id: string): Promise<void>;
-  createKnowledgeArticle(article: ProcessedArticle, config?: KbConfig): Promise<{ id: string; url?: string }>;
+  createKnowledgeArticle(article: ProcessedArticle, config?: KbConfig, environment?: PowerPlatformEnvironment): Promise<{ id: string; url?: string }>;
   /** Persist a formatted Excel report of the run to the source folder (or download in mock mode). */
   writeReport(config: KbConfig, log: LogEntry[]): Promise<ReportResult>;
   /** Read a prior run report (.xlsx) and return file paths that were loaded successfully — used for incremental mode. */
@@ -48,5 +48,5 @@ export interface KbLoaderService {
    * Compare each candidate against the existing D365 knowledgebase and return
    * possible overlaps, keyed by the candidate article id.
    */
-  findOverlaps(articles: ProcessedArticle[]): Promise<Record<string, OverlapMatch[]>>;
+  findOverlaps(articles: ProcessedArticle[], environment?: PowerPlatformEnvironment): Promise<Record<string, OverlapMatch[]>>;
 }

@@ -9,7 +9,7 @@ import {
   Warning20Filled, CloudArrowUp20Filled, CheckmarkCircle20Filled, DismissCircle20Filled,
   Sparkle20Filled, BranchCompare20Regular, Open16Regular,
 } from '@fluentui/react-icons';
-import type { ProcessedArticle, ArticleSuggestion, OverlapMatch, PIIFinding } from '../types';
+import type { ProcessedArticle, ArticleSuggestion, OverlapMatch, PIIFinding, PowerPlatformEnvironment } from '../types';
 import { sanitizeArticleHtml } from '../processing/pipeline';
 import { getService } from '../services';
 import { RichTextEditor } from './RichTextEditor';
@@ -227,9 +227,10 @@ export interface ReviewPanelProps {
   canLoad?: boolean;
   disabledReason?: string;
   blockPiiOnLoad?: boolean;
+  environment?: PowerPlatformEnvironment;
 }
 
-export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = true, disabledReason, blockPiiOnLoad = false }: ReviewPanelProps) {
+export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = true, disabledReason, blockPiiOnLoad = false, environment }: ReviewPanelProps) {
   const s = useStyles();
   const svc = useMemo(() => getService(), []);
   const [activeId, setActiveId] = useState<string>(articles[0]?.id ?? '');
@@ -428,7 +429,7 @@ export function ReviewPanel({ articles, onChange, onLoad, loading, canLoad = tru
     setOverlapError(undefined);
     setOverlapBanner(undefined);
     try {
-      const map = await svc.findOverlaps(articles);
+      const map = await svc.findOverlaps(articles, environment);
       let autoDeselected = 0;
       let flagged = 0;
       const next = articles.map(article => {

@@ -17,7 +17,10 @@ export const SANITIZE_OPTS: sanitizeHtml.IOptions = {
     img: ['src', 'alt', 'title', 'width', 'height'],
     '*': ['class']
   },
-  allowedSchemes: ['http', 'https', 'mailto', 'data'],
+  allowedSchemes: ['http', 'https', 'mailto'],
+  allowedSchemesByTag: {
+    img: ['http', 'https', 'data'],
+  },
   transformTags: {
     a: (_tag, attribs) => ({
       tagName: 'a',
@@ -238,5 +241,8 @@ function inline(text: string): string {
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label: string, url: string) => {
+      const safe = /^(https?:|mailto:|#|\/)/i.test(url.trim()) ? url : '#';
+      return `<a href="${safe}">${label}</a>`;
+    });
 }

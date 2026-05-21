@@ -195,6 +195,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(0);
   const [errors, setErrors] = useState(0);
+  const [skippedLoads, setSkippedLoads] = useState(0);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [reportSaving, setReportSaving] = useState(false);
   const [reportResult, setReportResult] = useState<ReportResult | undefined>();
@@ -395,12 +396,14 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
     setStage('progress');
     setDone(0);
     setErrors(0);
+    setSkippedLoads(0);
     setReportResult(undefined);
     setReportError(undefined);
     setEmailStatus(undefined);
     const targets = articles.filter(article => article.selected && article.loadStatus !== 'success' && (!config.blockPiiOnLoad || article.findings.length === 0));
-    let completed = 0;
+    let loadedCount = 0;
     let failureCount = 0;
+    let skippedCount = 0;
     const newEntries: LogEntry[] = [];
 
     for (const article of targets) {
@@ -408,7 +411,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
       try {
         const lookupTitle = (article.title ?? '').trim().replace(/\s+/g, ' ');
         const existing = config.duplicateAction !== 'create-new'
-          ? await svc.findArticleByTitle(lookupTitle)
+          ? await svc.findArticleByTitle(lookupTitle, environment)
           : undefined;
 
         if (existing && config.duplicateAction === 'skip') {
@@ -421,8 +424,9 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
           const entry = mkLog(article.source.name, 'skip', 'info', `Skipped — article "${existing.title}" already exists`, article.source.path, existing.id);
           newEntries.push(entry);
           appendLog(entry);
+          skippedCount += 1;
         } else if (existing && config.duplicateAction === 'update-existing') {
-          await svc.updateKnowledgeArticle(existing.id, article);
+          await svc.updateKnowledgeArticle(existing.id, article, environment);
           setArticles(previous => previous.map(candidate => candidate.id === article.id ? {
             ...candidate,
             loadStatus: 'success',
@@ -432,9 +436,9 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
           const entry = mkLog(article.source.name, 'update', 'success', `Updated existing knowledgearticle "${existing.title}"`, article.source.path, existing.id);
           newEntries.push(entry);
           appendLog(entry);
-          completed += 1;
+          loadedCount += 1;
         } else {
-          const result = await svc.createKnowledgeArticle(article, config);
+          const result = await svc.createKnowledgeArticle(article, config, environment);
           setArticles(previous => previous.map(candidate => candidate.id === article.id ? {
             ...candidate,
             loadStatus: 'success',
@@ -444,7 +448,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
           const entry = mkLog(article.source.name, 'load', 'success', 'Created knowledgearticle', article.source.path, result.id);
           newEntries.push(entry);
           appendLog(entry);
-          completed += 1;
+          loadedCount += 1;
         }
       } catch (error: unknown) {
         const message = String(error instanceof Error ? error.message : error);
@@ -454,8 +458,9 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
         appendLog(entry);
         failureCount += 1;
       }
-      setDone(completed + failureCount);
+      setDone(loadedCount + skippedCount + failureCount);
       setErrors(failureCount);
+      setSkippedLoads(skippedCount);
     }
     setLoading(false);
 
@@ -617,6 +622,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
             loading={loading}
             canLoad={envReady}
             blockPiiOnLoad={!!config.blockPiiOnLoad}
+            environment={environment}
             disabledReason={
               !environment
                 ? 'Pick a Power Platform environment first.'
@@ -633,6 +639,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
             done={done}
             total={articles.filter(article => article.selected).length}
             errors={errors}
+            skipped={skippedLoads}
             log={log}
             onSaveReport={() => handleSaveReport()}
             reportSaving={reportSaving}

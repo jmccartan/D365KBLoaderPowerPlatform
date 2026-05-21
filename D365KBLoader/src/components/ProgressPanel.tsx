@@ -125,6 +125,7 @@ export interface ProgressPanelProps {
   done: number;
   total: number;
   errors: number;
+  skipped: number;
   log: LogEntry[];
   onSaveReport: () => void;
   reportSaving: boolean;
@@ -137,13 +138,13 @@ export interface ProgressPanelProps {
 }
 
 export function ProgressPanel({
-  done, total, errors, log,
+  done, total, errors, skipped, log,
   onSaveReport, reportSaving, reportResult, reportError,
   canEmailReport, emailSending = false, emailStatus, onEmailReport,
 }: ProgressPanelProps) {
   const s = useStyles();
   const pct = total === 0 ? 0 : done / total;
-  const successes = Math.max(0, done - errors);
+  const successes = Math.max(0, done - errors - skipped);
   const [emailOpen, setEmailOpen] = useState(false);
   const [to, setTo] = useState('');
   const [subject, setSubject] = useState('');
@@ -154,8 +155,8 @@ export function ProgressPanel({
     [],
   );
   const defaultMessage = useMemo(
-    () => `<p>The KB Loader run has completed.</p><ul><li><strong>Total selected:</strong> ${total}</li><li><strong>Completed:</strong> ${done}</li><li><strong>Loaded successfully:</strong> ${successes}</li><li><strong>Errors:</strong> ${errors}</li></ul><p>${reportResult ? `Latest report: <strong>${reportResult.fileName}</strong>.</p>` : 'The attached workbook contains the full activity log.</p>'}`,
-    [done, errors, reportResult, successes, total],
+    () => `<p>The KB Loader run has completed.</p><ul><li><strong>Total selected:</strong> ${total}</li><li><strong>Completed:</strong> ${done}</li><li><strong>Loaded successfully:</strong> ${successes}</li><li><strong>Skipped:</strong> ${skipped}</li><li><strong>Errors:</strong> ${errors}</li></ul><p>${reportResult ? `Latest report: <strong>${reportResult.fileName}</strong>.</p>` : 'The attached workbook contains the full activity log.</p>'}`,
+    [done, errors, reportResult, skipped, successes, total],
   );
 
   function openEmailDialog() {
@@ -205,6 +206,13 @@ export function ProgressPanel({
               <div>
                 <div className={s.statValue}>{errors}</div>
                 <div className={s.statLabel}>Errors</div>
+              </div>
+            </div>
+            <div className={s.stat}>
+              <span className={`${s.statIcon} ${s.statBrand}`}><DocumentBulletListMultiple24Filled /></span>
+              <div>
+                <div className={s.statValue}>{skipped}</div>
+                <div className={s.statLabel}>Skipped</div>
               </div>
             </div>
           </div>
