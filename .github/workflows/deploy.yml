@@ -36,7 +36,7 @@ jobs:
         uses: microsoft/powerplatform-actions/actions-install@v1
 
       - name: Add pac to PATH
-        run: echo "$POWERPLATFORMTOOLS_PACPATH/pac/tools" >> $GITHUB_PATH
+        run: dirname "$POWERPLATFORMTOOLS_PACPATH" >> $GITHUB_PATH
 
       - name: pac auth (service principal)
         run: |
