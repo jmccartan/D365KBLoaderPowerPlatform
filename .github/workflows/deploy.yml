@@ -44,7 +44,8 @@ jobs:
             --url "$PP_ENV_URL" \
             --tenant "${{ secrets.PP_TENANT_ID }}" \
             --applicationId "${{ secrets.PP_CLIENT_ID }}" \
-            --clientSecret "${{ secrets.PP_CLIENT_SECRET }}"
+            --clientSecret "${{ secrets.PP_CLIENT_SECRET }}" \
+            --accept-cleartext-caching
 
       - name: pac org who
         run: pac org who
