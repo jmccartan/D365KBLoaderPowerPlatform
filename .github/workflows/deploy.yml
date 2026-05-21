@@ -38,13 +38,12 @@ jobs:
       - name: Add pac to PATH
         run: dirname "$POWERPLATFORMTOOLS_PACPATH" >> $GITHUB_PATH
 
-      - name: pac auth (service principal)
+      - name: pac auth (username/password)
         run: |
           pac auth create \
             --url "$PP_ENV_URL" \
-            --tenant "${{ secrets.PP_TENANT_ID }}" \
-            --applicationId "${{ secrets.PP_CLIENT_ID }}" \
-            --clientSecret "${{ secrets.PP_CLIENT_SECRET }}" \
+            --username "${{ secrets.PP_USERNAME }}" \
+            --password "${{ secrets.PP_PASSWORD }}" \
             --accept-cleartext-caching
 
       - name: pac org who
