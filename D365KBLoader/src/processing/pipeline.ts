@@ -61,28 +61,36 @@ async function pdfToHtml(buf: ArrayBuffer): Promise<{ html: string; warnings: st
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
   const doc = await pdfjs.getDocument({ data: buf }).promise;
   const paragraphs: string[] = [];
-  for (let p = 1; p <= doc.numPages; p++) {
-    const page = await doc.getPage(p);
-    const text = await page.getTextContent();
-    const lines: string[] = [];
-    let current = '';
-    let lastY: number | undefined;
-    for (const item of text.items as Array<{ str?: string; hasEOL?: boolean; transform?: number[] }>) {
-      const y = item.transform?.[5] ?? 0;
-      if (lastY !== undefined && Math.abs(lastY - y) > 2) {
+  try {
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p);
+      try {
+        const text = await page.getTextContent();
+        const lines: string[] = [];
+        let current = '';
+        let lastY: number | undefined;
+        for (const item of text.items as Array<{ str?: string; hasEOL?: boolean; transform?: number[] }>) {
+          const y = item.transform?.[5] ?? 0;
+          if (lastY !== undefined && Math.abs(lastY - y) > 2) {
+            if (current.trim()) lines.push(current.trim());
+            current = '';
+          }
+          current += (item.str ?? '') + (item.hasEOL ? ' ' : '');
+          lastY = y;
+        }
         if (current.trim()) lines.push(current.trim());
-        current = '';
+        if (lines.length === 0) {
+          warnings.push(`Page ${p} had no extractable text (image-only?)`);
+          continue;
+        }
+        paragraphs.push(...lines.map(line => `<p>${escape(line)}</p>`));
+        if (p < doc.numPages) paragraphs.push('<hr />');
+      } finally {
+        page.cleanup?.();
       }
-      current += (item.str ?? '') + (item.hasEOL ? ' ' : '');
-      lastY = y;
     }
-    if (current.trim()) lines.push(current.trim());
-    if (lines.length === 0) {
-      warnings.push(`Page ${p} had no extractable text (image-only?)`);
-      continue;
-    }
-    paragraphs.push(...lines.map(line => `<p>${escape(line)}</p>`));
-    if (p < doc.numPages) paragraphs.push('<hr />');
+  } finally {
+    await doc.destroy?.();
   }
   return { html: paragraphs.join('\n'), warnings };
 }

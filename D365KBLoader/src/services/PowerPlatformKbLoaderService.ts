@@ -5,6 +5,19 @@ import { buildReportWorkbook } from '../reporting/report';
 import { buildMockSuggestion } from './copilotSuggest';
 import { scoreOverlaps } from './overlapDetect';
 
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertGuid(name: string, value: string): string {
+  if (!GUID_RE.test(value)) throw new Error(`${name} must be a GUID, got: ${value}`);
+  return value;
+}
+
+function assertLcid(name: string, value: string | number): string {
+  const s = String(value);
+  if (!/^\d{1,6}$/.test(s)) throw new Error(`${name} must be a numeric LCID, got: ${s}`);
+  return s;
+}
+
 /**
  * Real implementation that uses the generated Power Apps Code App SDK clients.
  *
@@ -53,9 +66,7 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
 
   async listSubjects(parentId?: string): Promise<KbSubject[]> {
     const dv = await loadDataverseClient();
-    if (parentId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parentId)) {
-      throw new Error('listSubjects: parentId must be a GUID.');
-    }
+    if (parentId !== undefined) assertGuid('parentId', parentId);
     const res = await dv.subject?.list?.({
       $select: 'subjectid,title,_parentsubject_value',
       $filter: parentId ? `_parentsubject_value eq ${parentId}` : '_parentsubject_value eq null',
@@ -95,8 +106,8 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
       title: article.title,
       content: article.html,
       description: `Updated from ${article.source.path}`,
-      ...(article.languageId ? { 'languagelocaleid@odata.bind': `/languagelocale(${article.languageId})` } : {}),
-      ...(article.subjectId ? { 'subjectid@odata.bind': `/subjects(${article.subjectId})` } : {}),
+      ...(article.languageId ? { 'languagelocaleid@odata.bind': `/languagelocale(${assertLcid('languageId', article.languageId)})` } : {}),
+      ...(article.subjectId ? { 'subjectid@odata.bind': `/subjects(${assertGuid('subjectId', article.subjectId)})` } : {}),
     });
   }
 
@@ -265,8 +276,8 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
       description: `Imported from ${article.source.path}`,
       // 3 = Published (statecode 3, statuscode 7); leaving unset = Draft.
       ...(publish ? { statecode: 3, statuscode: 7 } : {}),
-      ...(langId ? { 'languagelocaleid@odata.bind': `/languagelocale(${langId})` } : {}),
-      ...(subjId ? { 'subjectid@odata.bind': `/subjects(${subjId})` } : {}),
+      ...(langId ? { 'languagelocaleid@odata.bind': `/languagelocale(${assertLcid('languageId', langId)})` } : {}),
+      ...(subjId ? { 'subjectid@odata.bind': `/subjects(${assertGuid('subjectId', subjId)})` } : {}),
     });
     const id = created.knowledgearticleid ?? created.id;
     const envBase = await loadEnvBaseUrl(environment);

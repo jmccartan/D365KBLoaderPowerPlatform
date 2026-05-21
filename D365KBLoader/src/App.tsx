@@ -465,7 +465,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
     setLoading(false);
 
     const combined = [...newEntries.slice().reverse(), ...log];
-    handleSaveReport(combined);
+    await handleSaveReport(combined);
   }
 
   async function handleApplyProfile(profile: SavedScanProfile) {
