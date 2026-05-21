@@ -35,19 +35,11 @@ jobs:
       - name: Install Power Platform CLI
         uses: microsoft/powerplatform-actions/actions-install@v1
 
-      - name: Add pac to PATH
-        run: dirname "$POWERPLATFORMTOOLS_PACPATH" >> $GITHUB_PATH
-
-      - name: pac auth (username/password)
-        run: |
-          pac auth create \
-            --url "$PP_ENV_URL" \
-            --username "${{ secrets.PP_USERNAME }}" \
-            --password "${{ secrets.PP_PASSWORD }}" \
-            --accept-cleartext-caching
-
-      - name: pac org who
-        run: pac org who
-
-      - name: pac code push
-        run: pac code push --environment "$PP_ENV_URL"
+      - name: pac code push (official action)
+        uses: microsoft/powerplatform-actions/code-push@v1
+        with:
+          environment-url: ${{ env.PP_ENV_URL }}
+          app-id: a766001e-69a5-4f9d-9e26-ff63a5f85c66
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          app-id-auth: ${{ secrets.PP_CLIENT_ID }}
+          client-secret: ${{ secrets.PP_CLIENT_SECRET }}
