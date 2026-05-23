@@ -1,4 +1,4 @@
-name: Deploy D365 KB Loader (pac code push)
+name: Deploy D365 KB Loader (power-apps push)
 
 on:
   workflow_dispatch:
@@ -19,27 +19,42 @@ jobs:
         working-directory: D365KBLoader
     env:
       PP_ENV_URL: https://orge8583733.crm.dynamics.com/
+      ENV_URL: https://orge8583733.crm.dynamics.com/
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: D365KBLoader/package-lock.json
 
       - name: Install npm deps
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
+
+      - name: Run unit tests
+        run: npm test --silent
 
       - name: Build (vite)
         run: npm run build
 
-      - name: Install Power Platform CLI
-        uses: microsoft/powerplatform-actions/actions-install@v1
+      - name: Install Power Platform CLI (pac)
+        uses: microsoft/powerplatform-actions/actions-install@v1.9.2
 
-      - name: pac code push (official action)
-        uses: microsoft/powerplatform-actions/code-push@v1
-        with:
-          environment-url: ${{ env.PP_ENV_URL }}
-          app-id: a766001e-69a5-4f9d-9e26-ff63a5f85c66
-          tenant-id: ${{ secrets.PP_TENANT_ID }}
-          app-id-auth: ${{ secrets.PP_CLIENT_ID }}
-          client-secret: ${{ secrets.PP_CLIENT_SECRET }}
+      - name: Authenticate pac with service principal
+        run: |
+          pac auth create \
+            --environment "$PP_ENV_URL" \
+            --applicationId "$PP_CLIENT_ID" \
+            --clientSecret "$PP_CLIENT_SECRET" \
+            --tenant "$PP_TENANT_ID"
+        env:
+          PP_CLIENT_ID: ${{ secrets.PP_CLIENT_ID }}
+          PP_CLIENT_SECRET: ${{ secrets.PP_CLIENT_SECRET }}
+          PP_TENANT_ID: ${{ secrets.PP_TENANT_ID }}
+
+      - name: Verify pac auth (who-am-i)
+        run: pac org who
+
+      - name: Push Code App
+        run: npx --no-install power-apps push --non-interactive
