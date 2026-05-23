@@ -107,9 +107,9 @@ export class MockKbLoaderService implements KbLoaderService {
     return files;
   }
 
-  async readPriorReports(_config: KbConfig): Promise<Set<string>> {
+  async readPriorReports(_config: KbConfig): Promise<Map<string, string>> {
     await delay(80);
-    return new Set();
+    return new Map();
   }
 
   async downloadFile(file: SourceFile): Promise<ArrayBuffer> {

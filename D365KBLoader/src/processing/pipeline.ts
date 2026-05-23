@@ -63,7 +63,13 @@ async function pdfToHtml(buf: ArrayBuffer): Promise<{ html: string; warnings: st
   const paragraphs: string[] = [];
   try {
     for (let p = 1; p <= doc.numPages; p++) {
-      const page = await doc.getPage(p);
+      let page: Awaited<ReturnType<typeof doc.getPage>> | undefined;
+      try {
+        page = await doc.getPage(p);
+      } catch (err) {
+        warnings.push(`Page ${p} could not be loaded: ${String((err as Error)?.message ?? err)}`);
+        continue;
+      }
       try {
         const text = await page.getTextContent();
         const lines: string[] = [];
@@ -85,12 +91,14 @@ async function pdfToHtml(buf: ArrayBuffer): Promise<{ html: string; warnings: st
         }
         paragraphs.push(...lines.map(line => `<p>${escape(line)}</p>`));
         if (p < doc.numPages) paragraphs.push('<hr />');
+      } catch (err) {
+        warnings.push(`Page ${p} text extraction failed: ${String((err as Error)?.message ?? err)}`);
       } finally {
-        page.cleanup?.();
+        try { page.cleanup?.(); } catch { /* ignore */ }
       }
     }
   } finally {
-    await doc.destroy?.();
+    try { await doc.destroy?.(); } catch { /* ignore */ }
   }
   return { html: paragraphs.join('\n'), warnings };
 }
@@ -250,7 +258,13 @@ function inline(text: string): string {
     .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label: string, url: string) => {
-      const safe = /^(https?:|mailto:|#|\/)/i.test(url.trim()) ? url : '#';
-      return `<a href="${safe}">${label}</a>`;
+      // `label` and `url` are already entity-escaped (escape() ran first), so
+      // attribute breakout is not possible. Still, validate the scheme and
+      // re-escape defensively in case escape() is ever refactored. If the
+      // scheme is not allowlisted, drop the anchor and render the label as
+      // plain text to avoid leaking a junk href into the DOM.
+      const trimmed = url.trim();
+      if (!/^(https?:|mailto:|#|\/)/i.test(trimmed)) return label;
+      return `<a href="${escape(trimmed)}">${label}</a>`;
     });
 }

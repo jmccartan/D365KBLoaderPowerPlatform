@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   makeStyles, tokens, Text, MessageBar, MessageBarBody, MessageBarTitle, Button,
 } from '@fluentui/react-components';
@@ -205,6 +205,26 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
   const [environment, setEnvironment] = useState<PowerPlatformEnvironment | undefined>();
   const [currentUser, setCurrentUser] = useState<KbUser | undefined>();
 
+  // Ref mirror of `articles` so long-running scan/load loops always read the
+  // latest article state (e.g. edits made in ReviewPanel mid-load) instead of
+  // a stale snapshot captured when the loop started.
+  const articlesRef = useRef<ProcessedArticle[]>(articles);
+  useEffect(() => { articlesRef.current = articles; }, [articles]);
+
+  // Cancellation flag for scan/load loops. Set via the Cancel button on
+  // ConfigPanel (during scanning) or ProgressPanel (during loading) and
+  // checked between iterations.
+  const cancelRef = useRef(false);
+  const [cancelRequested, setCancelRequested] = useState(false);
+  function requestCancel() {
+    cancelRef.current = true;
+    setCancelRequested(true);
+  }
+  function resetCancel() {
+    cancelRef.current = false;
+    setCancelRequested(false);
+  }
+
   const isMock = import.meta.env?.VITE_USE_REAL_CONNECTORS !== 'true';
   const envReady = !!environment && environment.knowledgebaseStatus === 'present';
   const uploadImage = svc.uploadImage ? svc.uploadImage.bind(svc) : undefined;
@@ -297,6 +317,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
   }
 
   async function handleScan() {
+    resetCancel();
     setScanning(true);
     setScanError(undefined);
     setLog([]);
@@ -308,23 +329,37 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
       const supported = files.filter(file => file.kind !== 'unsupported');
       const skipped = files.filter(file => file.kind === 'unsupported');
 
-      let alreadyLoaded = new Set<string>();
+      let priorLoads: Map<string, string> = new Map();
       if (config.incremental && svc.readPriorReports) {
         try {
-          alreadyLoaded = await svc.readPriorReports(config);
+          priorLoads = await svc.readPriorReports(config);
         } catch {
-          alreadyLoaded = new Set<string>();
+          priorLoads = new Map();
         }
       }
 
-      const toProcess = supported.filter(file => !alreadyLoaded.has(file.path));
+      // Only skip a file if the prior load is at least as new as the current
+      // SharePoint modifiedOn — otherwise re-process so KB stays in sync with
+      // updates made after the last run.
+      const toProcess = supported.filter(file => {
+        const prior = priorLoads.get(file.path);
+        if (!prior) return true;
+        const priorTs = Date.parse(prior);
+        const currentTs = Date.parse(file.modified);
+        if (Number.isNaN(priorTs) || Number.isNaN(currentTs)) return true;
+        return currentTs > priorTs;
+      });
       const incSkipped = supported.length - toProcess.length;
       if (incSkipped > 0) {
-        appendLog(mkLog('(incremental)', 'skip', 'info', `Skipped ${incSkipped} files already loaded in a prior run.`));
+        appendLog(mkLog('(incremental)', 'skip', 'info', `Skipped ${incSkipped} files unchanged since a prior successful load.`));
       }
 
       const processed: ProcessedArticle[] = [];
       for (const file of toProcess) {
+        if (cancelRef.current) {
+          appendLog(mkLog('(scan)', 'skip', 'info', 'Scan cancelled by user.'));
+          break;
+        }
         try {
           const buffer = await svc.downloadFile(file);
           const article = await buildProcessedArticle(file, buffer);
@@ -359,6 +394,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
       setScanError(String(error instanceof Error ? error.message : error));
     } finally {
       setScanning(false);
+      resetCancel();
     }
   }
 
@@ -392,6 +428,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
   }
 
   async function handleLoad() {
+    resetCancel();
     setLoading(true);
     setStage('progress');
     setDone(0);
@@ -400,14 +437,26 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
     setReportResult(undefined);
     setReportError(undefined);
     setEmailStatus(undefined);
-    const targets = articles.filter(article => article.selected && article.loadStatus !== 'success' && (!config.blockPiiOnLoad || article.findings.length === 0));
+    const targetIds = articles
+      .filter(article => article.selected && article.loadStatus !== 'success' && (!config.blockPiiOnLoad || article.findings.length === 0))
+      .map(article => article.id);
     let loadedCount = 0;
     let failureCount = 0;
     let skippedCount = 0;
     const newEntries: LogEntry[] = [];
 
-    for (const article of targets) {
-      setArticles(previous => previous.map(candidate => candidate.id === article.id ? { ...candidate, loadStatus: 'loading', loadError: undefined } : candidate));
+    for (const id of targetIds) {
+      if (cancelRef.current) {
+        const cancelEntry = mkLog('(load)', 'skip', 'info', 'Load cancelled by user.');
+        newEntries.push(cancelEntry);
+        appendLog(cancelEntry);
+        break;
+      }
+      // Always read the latest article state — the user may have edited
+      // the title, body, or per-article overrides since the loop started.
+      const article = articlesRef.current.find(candidate => candidate.id === id);
+      if (!article) continue;
+      setArticles(previous => previous.map(candidate => candidate.id === id ? { ...candidate, loadStatus: 'loading', loadError: undefined } : candidate));
       try {
         const lookupTitle = (article.title ?? '').trim().replace(/\s+/g, ' ');
         const existing = config.duplicateAction !== 'create-new'
@@ -415,7 +464,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
           : undefined;
 
         if (existing && config.duplicateAction === 'skip') {
-          setArticles(previous => previous.map(candidate => candidate.id === article.id ? {
+          setArticles(previous => previous.map(candidate => candidate.id === id ? {
             ...candidate,
             loadStatus: 'skipped',
             knowledgeArticleId: existing.id,
@@ -427,7 +476,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
           skippedCount += 1;
         } else if (existing && config.duplicateAction === 'update-existing') {
           await svc.updateKnowledgeArticle(existing.id, article, environment);
-          setArticles(previous => previous.map(candidate => candidate.id === article.id ? {
+          setArticles(previous => previous.map(candidate => candidate.id === id ? {
             ...candidate,
             loadStatus: 'success',
             knowledgeArticleId: existing.id,
@@ -439,7 +488,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
           loadedCount += 1;
         } else {
           const result = await svc.createKnowledgeArticle(article, config, environment);
-          setArticles(previous => previous.map(candidate => candidate.id === article.id ? {
+          setArticles(previous => previous.map(candidate => candidate.id === id ? {
             ...candidate,
             loadStatus: 'success',
             knowledgeArticleId: result.id,
@@ -452,7 +501,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
         }
       } catch (error: unknown) {
         const message = String(error instanceof Error ? error.message : error);
-        setArticles(previous => previous.map(candidate => candidate.id === article.id ? { ...candidate, loadStatus: 'error', loadError: message } : candidate));
+        setArticles(previous => previous.map(candidate => candidate.id === id ? { ...candidate, loadStatus: 'error', loadError: message } : candidate));
         const entry = mkLog(article.source.name, 'load', 'error', message, article.source.path);
         newEntries.push(entry);
         appendLog(entry);
@@ -463,6 +512,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
       setSkippedLoads(skippedCount);
     }
     setLoading(false);
+    resetCancel();
 
     const combined = [...newEntries.slice().reverse(), ...log];
     await handleSaveReport(combined);
@@ -607,7 +657,7 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
         {stage === 'config' && (
           <>
             <div className={s.configGrid}>
-              <ConfigPanel config={config} onChange={updateConfig} onScan={handleScan} scanning={scanning} error={scanError} />
+              <ConfigPanel config={config} onChange={updateConfig} onScan={handleScan} scanning={scanning} error={scanError} onCancel={requestCancel} cancelRequested={cancelRequested} />
               <KbDefaultsCard service={svc} config={config} onChange={updateConfig} />
             </div>
             <Text className={s.sectionLabel}>…or upload local files</Text>
@@ -649,6 +699,9 @@ export function App({ themeMode, onToggleTheme }: AppProps) {
             emailSending={emailSending}
             emailStatus={emailStatus}
             onEmailReport={handleEmailReport}
+            loading={loading}
+            onCancel={requestCancel}
+            cancelRequested={cancelRequested}
           />
         )}
       </main>

@@ -83,6 +83,13 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
   async findArticleByTitle(title: string, environment?: PowerPlatformEnvironment): Promise<ExistingKbArticle | undefined> {
     const dv = await loadDataverseClient(environment);
     const normalized = title.trim().replace(/\s+/g, ' ');
+    // Reject control chars (these would never appear in a real KB title and
+    // could be used to construct malformed OData literals).
+    if (/[\u0000-\u001F\u007F]/.test(normalized) || normalized.length === 0 || normalized.length > 500) {
+      return undefined;
+    }
+    // OData v4 string literals only require single-quote doubling. Other
+    // characters (%, \, _) are not special inside literals — see OData ABNF.
     const escaped = normalized.replace(/'/g, "''").toLowerCase();
     // Case-insensitive whitespace-tolerant match — OData supports tolower() and
     // trim() functions on string fields.
@@ -335,7 +342,7 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
     const dv = await loadDataverseClient(environment);
     const res = await dv.knowledgearticle.list?.({
       $select: 'knowledgearticleid,title,description,modifiedon',
-      $top: 500,
+      $top: 5000,
       $filter: "statecode eq 0 or statecode eq 3", // draft or published
     });
     const candidates: ExistingKbArticle[] = (res?.value ?? []).map((r: any) => ({

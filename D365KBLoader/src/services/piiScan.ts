@@ -11,9 +11,14 @@ interface MatchInfo {
   index: number;
 }
 
-const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,24}\b/gi;
 const SSN_RE = /\b\d{3}-\d{2}-\d{4}\b/g;
 const CREDIT_CARD_RE = /(?<!\d)(?:\d[ -]?){13,19}(?!\d)/g;
+// Real-card BIN prefixes — Visa (4), Mastercard (51-55, 2221-2720), Amex
+// (34/37), Discover (6011, 65, 644-649), JCB (35), Diners (300-305, 36, 38),
+// UnionPay (62). Filtering on these dramatically cuts false positives from
+// EAN-13 barcodes, IMEIs, and tracking numbers that happen to pass Luhn.
+const CARD_BIN_RE = /^(?:4|5[1-5]|2(?:2[2-9][1-9]|2[3-9]\d{2}|[3-6]\d{3}|7[01]\d{2}|720\d)|3[47]|6011|65|64[4-9]|35|30[0-5]|3[68]|62)/;
 
 export function findPii(input: string): PIIFinding[] {
   const text = normalizeInput(input);
@@ -65,6 +70,9 @@ function collectCreditCardMatches(text: string): MatchInfo[] {
     // Cut down false positives (phone numbers, order ids, etc.) by requiring
     // a Luhn checksum match — every issued PAN passes Luhn by spec.
     if (!isLuhnValid(digitsOnly)) continue;
+    // Additionally require a real card-issuer BIN prefix — EAN-13 barcodes,
+    // IMEIs, and order numbers can pass Luhn but won't match a real BIN.
+    if (!CARD_BIN_RE.test(digitsOnly)) continue;
     matches.push({ kind: 'credit-card', value: found[0], index: found.index });
   }
   return matches;

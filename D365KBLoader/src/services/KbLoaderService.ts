@@ -38,8 +38,13 @@ export interface KbLoaderService {
   createKnowledgeArticle(article: ProcessedArticle, config?: KbConfig, environment?: PowerPlatformEnvironment): Promise<{ id: string; url?: string }>;
   /** Persist a formatted Excel report of the run to the source folder (or download in mock mode). */
   writeReport(config: KbConfig, log: LogEntry[]): Promise<ReportResult>;
-  /** Read a prior run report (.xlsx) and return file paths that were loaded successfully — used for incremental mode. */
-  readPriorReports?(config: KbConfig): Promise<Set<string>>;
+  /**
+   * Read prior run reports (.xlsx) and return a map of source file path →
+   * latest known modifiedOn ISO timestamp from any successful prior load.
+   * Used for incremental mode: a file is skipped only if its current
+   * `modified` is **not newer** than the prior load timestamp.
+   */
+  readPriorReports?(config: KbConfig): Promise<Map<string, string>>;
   /** Send the report by email through the Outlook connector (real) or log (mock). */
   emailReport?(to: string[], subject: string, html: string, attachment: { fileName: string; buffer: ArrayBuffer }): Promise<void>;
   /** Generate AI-assisted edit suggestions for a single article (Copilot review). */

@@ -135,12 +135,16 @@ export interface ProgressPanelProps {
   emailSending?: boolean;
   emailStatus?: EmailStatus;
   onEmailReport?: (to: string[], subject: string, html: string) => Promise<void>;
+  loading?: boolean;
+  onCancel?: () => void;
+  cancelRequested?: boolean;
 }
 
 export function ProgressPanel({
   done, total, errors, skipped, log,
   onSaveReport, reportSaving, reportResult, reportError,
   canEmailReport, emailSending = false, emailStatus, onEmailReport,
+  loading = false, onCancel, cancelRequested = false,
 }: ProgressPanelProps) {
   const s = useStyles();
   const pct = total === 0 ? 0 : done / total;
@@ -224,6 +228,17 @@ export function ProgressPanel({
               </Text>
             </div>
             <ProgressBar value={pct} thickness="large" />
+            {loading && onCancel && (
+              <div className={s.actionRow} style={{ justifyContent: 'flex-end' }}>
+                <Button
+                  appearance="secondary"
+                  onClick={onCancel}
+                  disabled={cancelRequested}
+                >
+                  {cancelRequested ? 'Cancelling…' : 'Cancel load'}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </Card>

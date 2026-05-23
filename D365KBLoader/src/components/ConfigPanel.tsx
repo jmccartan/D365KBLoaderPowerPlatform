@@ -76,9 +76,11 @@ export interface ConfigPanelProps {
   onScan: () => void;
   scanning: boolean;
   error?: string;
+  onCancel?: () => void;
+  cancelRequested?: boolean;
 }
 
-export function ConfigPanel({ config, onChange, onScan, scanning, error }: ConfigPanelProps) {
+export function ConfigPanel({ config, onChange, onScan, scanning, error, onCancel, cancelRequested }: ConfigPanelProps) {
   const s = useStyles();
   const svc = useMemo(() => getService(), []);
   const [local, setLocal] = useState<KbConfig>(config);
@@ -94,7 +96,8 @@ export function ConfigPanel({ config, onChange, onScan, scanning, error }: Confi
     setLocal(next);
     onChange(next);
   };
-  const ready = !!local.siteUrl && !!local.folderPath;
+  const siteUrlInvalid = !!local.siteUrl && !/^https:\/\//i.test(local.siteUrl.trim());
+  const ready = !!local.siteUrl && !!local.folderPath && !siteUrlInvalid;
 
   return (
     <Card className={s.card}>
@@ -107,7 +110,12 @@ export function ConfigPanel({ config, onChange, onScan, scanning, error }: Confi
         </div>
       </div>
       <div className={s.body}>
-        <Field label="SharePoint site URL" hint="Pick from your sites or paste a URL.">
+        <Field
+          label="SharePoint site URL"
+          hint="Pick from your sites or paste a URL."
+          validationState={siteUrlInvalid ? 'error' : undefined}
+          validationMessage={siteUrlInvalid ? 'Site URL must start with https://' : undefined}
+        >
           <div className={s.inputRow}>
             <Input
               value={local.siteUrl}
@@ -166,6 +174,16 @@ export function ConfigPanel({ config, onChange, onScan, scanning, error }: Confi
           >
             {scanning ? 'Scanning…' : 'Scan folder'}
           </Button>
+          {scanning && onCancel && (
+            <Button
+              appearance="secondary"
+              size="large"
+              onClick={onCancel}
+              disabled={cancelRequested}
+            >
+              {cancelRequested ? 'Cancelling…' : 'Cancel'}
+            </Button>
+          )}
           {!ready && (
             <Text className={s.hint}>Fill in site URL and folder path to continue.</Text>
           )}

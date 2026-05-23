@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ClipboardEvent } from 'react';
 import { Button, makeStyles, tokens, Tooltip } from '@fluentui/react-components';
 import {
   TextBold20Regular,
@@ -114,6 +114,22 @@ export function RichTextEditor({ value, onCommit }: RichTextEditorProps) {
     onCommit(cleaned);
   }
 
+  function handlePaste(event: ClipboardEvent<HTMLDivElement>) {
+    // Sanitize pasted content before insertion so unsanitized HTML never lives
+    // in the editor DOM — even momentarily. Strips scripts, event handlers,
+    // and disallowed tags via the same allowlist used at commit time.
+    event.preventDefault();
+    const clipboard = event.clipboardData;
+    const rawHtml = clipboard.getData('text/html');
+    const rawText = clipboard.getData('text/plain');
+    const toInsert = rawHtml
+      ? sanitizeArticleHtml(rawHtml)
+      : rawText.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
+    focusEditor();
+    document.execCommand('insertHTML', false, toInsert);
+    commit();
+  }
+
   const actions: ToolbarAction[] = [
     { label: 'Bold', icon: <TextBold20Regular />, command: () => runCommand('bold') },
     { label: 'Italic', icon: <TextItalic20Regular />, command: () => runCommand('italic') },
@@ -140,6 +156,7 @@ export function RichTextEditor({ value, onCommit }: RichTextEditorProps) {
         contentEditable
         suppressContentEditableWarning
         onBlur={commit}
+        onPaste={handlePaste}
       />
     </div>
   );
