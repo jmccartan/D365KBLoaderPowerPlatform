@@ -164,7 +164,9 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
             id: host || url,
             displayName: i.FriendlyName ?? host ?? 'Environment',
             url,
-            region: 'prod',
+            // The GetOrganizations connector action doesn't return region/type
+            // metadata, so we leave region undefined rather than mislabeling
+            // every org as "prod".
             isDefault: !!host && !!boundHost && boundHost === host,
             knowledgebaseStatus: 'unknown' as const,
           } as PowerPlatformEnvironment;
@@ -178,7 +180,6 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
       id: 'current',
       displayName: 'Current environment',
       url: envUrl,
-      region: 'prod',
       isDefault: true,
       knowledgebaseStatus: 'unknown' as const,
     }];

@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import {
   Dialog, DialogSurface, DialogTitle, DialogBody, DialogActions, DialogContent,
   Button, Spinner, Text, makeStyles, tokens, mergeClasses, MessageBar, MessageBarBody, Badge,
+  Input,
 } from '@fluentui/react-components';
 import {
   Cloud24Filled, CheckmarkCircle20Filled, DismissCircle20Filled, Warning20Filled,
-  ArrowClockwise20Regular, ChevronDown16Regular,
+  ArrowClockwise20Regular, ChevronDown16Regular, Search20Regular,
 } from '@fluentui/react-icons';
 import type { KbLoaderService } from '../services/KbLoaderService';
 import type { PowerPlatformEnvironment } from '../types';
@@ -141,6 +142,7 @@ function EnvironmentDialog({ open, service, selectedId, onPick, onClose }: Dialo
   const [error, setError] = useState<string | undefined>();
   const [envs, setEnvs] = useState<PowerPlatformEnvironment[]>([]);
   const [highlight, setHighlight] = useState<string | undefined>(selectedId);
+  const [search, setSearch] = useState('');
 
   async function load() {
     setLoading(true);
@@ -160,12 +162,24 @@ function EnvironmentDialog({ open, service, selectedId, onPick, onClose }: Dialo
 
   useEffect(() => {
     if (open) {
+      // Clear any stale list from a previous open so the spinner shows and
+      // users always see a fresh fetch — no need to hit Refresh manually.
+      setEnvs([]);
+      setError(undefined);
+      setSearch('');
       setHighlight(selectedId);
       load();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  const q = search.trim().toLowerCase();
+  const visible = q
+    ? envs.filter(e =>
+        (e.displayName ?? '').toLowerCase().includes(q) ||
+        (e.url ?? '').toLowerCase().includes(q),
+      )
+    : envs;
   const picked = envs.find(e => e.id === highlight);
 
   return (
@@ -180,6 +194,13 @@ function EnvironmentDialog({ open, service, selectedId, onPick, onClose }: Dialo
             </Text>
 
             <div className={s.toolbar}>
+              <Input
+                placeholder="Search environments by name or URL…"
+                value={search}
+                onChange={(_, d) => setSearch(d.value)}
+                contentBefore={<Search20Regular />}
+                style={{ flex: 1 }}
+              />
               <Button
                 icon={<ArrowClockwise20Regular />}
                 appearance="subtle"
@@ -200,7 +221,12 @@ function EnvironmentDialog({ open, service, selectedId, onPick, onClose }: Dialo
               {loading && envs.length === 0 && (
                 <div className={s.empty}><Spinner size="small" label="Loading environments…" /></div>
               )}
-              {envs.map(env => {
+              {!loading && envs.length > 0 && visible.length === 0 && (
+                <div className={s.empty}>
+                  <Text size={200}>No environments match "{search}".</Text>
+                </div>
+              )}
+              {visible.map(env => {
                 const isSel = highlight === env.id;
                 return (
                   <div
