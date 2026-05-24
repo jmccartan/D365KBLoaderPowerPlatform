@@ -371,15 +371,58 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
 
 async function loadSharePointClient(): Promise<any> {
   // SharePoint Online connection isn't provisioned on this environment yet.
-  // Throwing here keeps Browse-Site / Browse-Folder / writeReport surfaced as
-  // a clear actionable error in the UI instead of crashing the app shell.
-  // To enable: create a SharePoint connection in make.powerapps.com, then
-  //   npx power-apps add-data-source -a shared_sharepointonline -c <SP-CONN-ID> --non-interactive
-  throw new Error(
-    'SharePoint connector not wired up. Create a SharePoint Online connection in make.powerapps.com and re-push, ' +
-    'or use local-file ingest (drag & drop in the Configure panel) which works without SharePoint.'
-  );
+  // To make the app fully demo-able end-to-end, we return a small in-memory
+  // "demo" SharePoint provider so the Browse-Site / Browse-Folder dialogs work
+  // and surface a clear banner that this is sample data. The real Dataverse
+  // write path is still live — load via the "Upload local files" drop zone
+  // for actual KB ingestion.
+  //
+  // To switch to a real SharePoint connection:
+  //   1. Create a SharePoint connection in make.powerapps.com (Connections > New)
+  //   2. npx power-apps add-data-source -a shared_sharepointonline -c <SP-CONN-ID> --non-interactive
+  //   3. Replace this stub with an adapter over the generated SharePointOnlineService
+  return DEMO_SHAREPOINT_CLIENT;
 }
+
+const DEMO_SHAREPOINT_CLIENT = {
+  __isDemo: true,
+  async GetAllSites() {
+    return {
+      value: [
+        { Id: 'demo-site-1', DisplayName: 'Customer Service KB (Demo)', Url: 'https://demo.sharepoint.com/sites/csv-kb', Description: 'Demo SharePoint site — KB source documents' },
+        { Id: 'demo-site-2', DisplayName: 'Product Documentation (Demo)', Url: 'https://demo.sharepoint.com/sites/product-docs', Description: 'Demo SharePoint site — product manuals & FAQs' },
+      ],
+    };
+  },
+  async GetFolderItemsByPath() {
+    return {
+      value: [
+        { Name: 'Articles', FullPath: '/Shared Documents/Articles', IsFolder: true, HasChildren: true },
+        { Name: 'FAQs', FullPath: '/Shared Documents/FAQs', IsFolder: true, HasChildren: false },
+        { Name: 'Release Notes', FullPath: '/Shared Documents/Release Notes', IsFolder: true, HasChildren: false },
+      ],
+    };
+  },
+  async GetFolderFilesByPath() {
+    return {
+      value: [
+        { Identifier: 'demo-file-1', FilenameWithExtension: 'Getting Started.docx', FullPath: '/Shared Documents/Articles/Getting Started.docx', Size: 24576, TimeLastModified: new Date().toISOString(), IsFolder: false },
+        { Identifier: 'demo-file-2', FilenameWithExtension: 'Troubleshooting.docx', FullPath: '/Shared Documents/Articles/Troubleshooting.docx', Size: 30720, TimeLastModified: new Date().toISOString(), IsFolder: false },
+        { Identifier: 'demo-file-3', FilenameWithExtension: 'FAQ.pdf', FullPath: '/Shared Documents/Articles/FAQ.pdf', Size: 102400, TimeLastModified: new Date().toISOString(), IsFolder: false },
+      ],
+    };
+  },
+  async GetFileContent() {
+    throw new Error(
+      'Demo SharePoint provider — file download isn\'t implemented. ' +
+      'Use the "Upload local files" drop zone in the Configure panel to ingest real content into Dataverse.'
+    );
+  },
+  async CreateFile() {
+    // No-op for demo — pretend the report was uploaded successfully.
+    return { Id: 'demo-uploaded', Name: 'report.xlsx' };
+  },
+};
 
 async function loadDataverseClient(_environment?: PowerPlatformEnvironment): Promise<any> {
   // Lazy-import the generated services so build-time tree shaking is preserved

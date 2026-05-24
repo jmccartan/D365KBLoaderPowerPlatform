@@ -131,6 +131,14 @@ export function BrowseSiteDialog({ open, service, onPick, onClose }: BrowseSiteD
                 <MessageBarBody>{error}</MessageBarBody>
               </MessageBar>
             )}
+            {!loading && !error && sites.length > 0 && sites[0].id?.startsWith('demo-site') && (
+              <MessageBar intent="info" style={{ marginTop: 12 }}>
+                <MessageBarBody>
+                  Showing demo SharePoint data — a SharePoint Online connection isn't provisioned in this environment yet.
+                  KB writes to Dataverse are live. For real document ingest, use the "Upload local files" drop zone in the Configure panel.
+                </MessageBarBody>
+              </MessageBar>
+            )}
             <div className={s.list}>
               {loading && (
                 <div className={s.empty}><Spinner size="small" label="Loading sites…" /></div>
