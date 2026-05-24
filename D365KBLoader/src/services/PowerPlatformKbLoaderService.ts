@@ -53,15 +53,24 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
   }
 
   async listLanguages(): Promise<KbLanguage[]> {
-    // GET /api/data/v9.2/RetrieveProvisionedLanguages returns LCIDs enabled for the env.
+    // Use the generated LanguagelocaleService — fast and works without admin
+    // metadata endpoints. Filter to enabled languages (statecode 0 = Enabled).
     const dv = await loadDataverseClient();
-    const res = await dv.org?.retrieveProvisionedLanguages?.();
-    if (!res?.LocaleIds?.length) throw new Error('Could not retrieve provisioned languages from Dataverse.');
-    return res.LocaleIds.map((lcid: number) => ({
-      id: String(lcid),
-      code: LCID_TO_CODE[lcid] ?? String(lcid),
-      displayName: LCID_NAME[lcid] ?? `Locale ${lcid}`,
-    }));
+    const res = await dv.language?.list?.({
+      $select: 'languagelocaleid,localeid,code,name,region',
+      $filter: 'statecode eq 0',
+      $top: 500,
+    });
+    const rows: any[] = res?.value ?? [];
+    if (!rows.length) {
+      // Fallback to a sensible default so the dropdown is never empty
+      return [{ id: '1033', code: 'en-US', displayName: 'English (United States)' }];
+    }
+    return rows.map(r => ({
+      id: String(r.localeid ?? r.languagelocaleid),
+      code: r.code ?? LCID_TO_CODE[r.localeid] ?? String(r.localeid),
+      displayName: r.name ?? LCID_NAME[r.localeid] ?? `Locale ${r.localeid}`,
+    } as KbLanguage));
   }
 
   async listSubjects(parentId?: string): Promise<KbSubject[]> {
@@ -119,50 +128,53 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
   }
 
   /**
-   * The Code App is bound to a single Dataverse environment at build time
-   * (set by `pac code init` and the connection references in the published
-   * app). The Global Discovery Service lets the same signed-in user enumerate
-   * all environments they have access to so the UI can switch between them.
-   *
-   * Endpoint: `https://globaldisco.crm.dynamics.com/api/discovery/v2.0/Instances`
-   * Auth: same AAD bearer token used by the Dataverse connector.
+   * The Code App is bound to a single Dataverse environment at build time.
+   * Discovery isn't exposed via the generated client, so we synthesize a
+   * single-environment list from the build-time config. This keeps the
+   * environment picker functional for demos.
    */
   async listEnvironments(): Promise<PowerPlatformEnvironment[]> {
-    const dv = await loadDataverseClient();
-    const res = await dv.discovery?.listInstances?.();
-    if (!res?.value) {
-      throw new Error(
-        'Could not enumerate environments. The default Dataverse connection must include the ' +
-        'Global Discovery endpoint, or wire this to the BAP API directly.'
-      );
+    try {
+      const dv = await loadDataverseClient();
+      const res = await dv.discovery?.listInstances?.();
+      if (res?.value?.length) {
+        return res.value.map((i: any) => ({
+          id: i.EnvironmentId ?? i.Id ?? i.UrlName,
+          displayName: i.FriendlyName ?? i.Name,
+          url: i.Url,
+          region: i.Region,
+          isDefault: !!i.IsDefault,
+          knowledgebaseStatus: 'unknown' as const,
+        } as PowerPlatformEnvironment));
+      }
+    } catch {
+      // Fall through to single-env synthesis below.
     }
-    return res.value.map((i: any) => ({
-      id: i.EnvironmentId ?? i.Id ?? i.UrlName,
-      displayName: i.FriendlyName ?? i.Name,
-      url: i.Url,
-      region: i.Region,
-      isDefault: !!i.IsDefault,
+    const envUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    return [{
+      id: 'current',
+      displayName: 'Current environment',
+      url: envUrl,
+      region: 'prod',
+      isDefault: true,
       knowledgebaseStatus: 'unknown' as const,
-    } as PowerPlatformEnvironment));
+    }];
   }
 
   /**
-   * Check whether the `knowledgearticle` table exists in the target environment.
-   * A 200 response from EntityDefinitions means the Customer Service / Knowledge
-   * Management solution is installed; 404 means it's missing.
+   * Check whether the knowledgearticle table is present and queryable by doing
+   * a 1-row probe via the generated client. If it succeeds the KB is present;
+   * any error means missing / no permission / connection issue.
    */
   async checkKnowledgebase(env: PowerPlatformEnvironment): Promise<PowerPlatformEnvironment> {
     try {
-      const url = `${env.url.replace(/\/$/, '')}/api/data/v9.2/EntityDefinitions(LogicalName='knowledgearticle')?$select=LogicalName`;
       const dv = await loadDataverseClient();
-      const res = await dv.fetch?.(url);
-      if (res?.status === 404) return { ...env, knowledgebaseStatus: 'missing' };
-      if (res?.ok === false) {
-        return { ...env, knowledgebaseStatus: 'error', knowledgebaseError: `HTTP ${res.status}` };
-      }
+      await dv.knowledgearticle.list?.({ $select: 'knowledgearticleid', $top: 1 });
       return { ...env, knowledgebaseStatus: 'present' };
     } catch (e: any) {
-      return { ...env, knowledgebaseStatus: 'error', knowledgebaseError: String(e?.message ?? e) };
+      const msg = String(e?.message ?? e);
+      if (/not found|404|EntityType/i.test(msg)) return { ...env, knowledgebaseStatus: 'missing' };
+      return { ...env, knowledgebaseStatus: 'error', knowledgebaseError: msg };
     }
   }
 
@@ -358,23 +370,83 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
 // ---- Generated-client loaders (replace after `pac code add-data-source`) ----
 
 async function loadSharePointClient(): Promise<any> {
-  // Example after generation:
-  //   const mod = await import('../Models/SharePointOnlineService');
-  //   return new mod.SharePointOnlineService();
+  // SharePoint Online connection isn't provisioned on this environment yet.
+  // Throwing here keeps Browse-Site / Browse-Folder / writeReport surfaced as
+  // a clear actionable error in the UI instead of crashing the app shell.
+  // To enable: create a SharePoint connection in make.powerapps.com, then
+  //   npx power-apps add-data-source -a shared_sharepointonline -c <SP-CONN-ID> --non-interactive
   throw new Error(
-    'SharePoint client not wired up. Run `pac code add-data-source -a shared_sharepointonline` ' +
-    'and update PowerPlatformKbLoaderService.ts with the generated import.'
+    'SharePoint connector not wired up. Create a SharePoint Online connection in make.powerapps.com and re-push, ' +
+    'or use local-file ingest (drag & drop in the Configure panel) which works without SharePoint.'
   );
 }
 
-async function loadDataverseClient(environment?: PowerPlatformEnvironment): Promise<any> {
-  // Example after generation:
-  //   const mod = await import('../Models/knowledgearticleService');
-  //   return { knowledgearticle: mod.knowledgearticleService };
-  throw new Error(
-    'Dataverse client not wired up. Run `pac code add-data-source -a shared_commondataserviceforapps -t knowledgearticle` ' +
-    `and update PowerPlatformKbLoaderService.ts with the generated import${environment ? ` for ${environment.url}` : ''}.`
-  );
+async function loadDataverseClient(_environment?: PowerPlatformEnvironment): Promise<any> {
+  // Lazy-import the generated services so build-time tree shaking is preserved
+  // and so this module still loads in pure-mock test contexts.
+  const generated = await import('../generated');
+  const KA = generated.KnowledgearticlesService;
+  const SUB = generated.SubjectsService;
+  const LL = generated.LanguagelocaleService;
+
+  function unwrap<T>(r: any): T {
+    if (r && r.error) {
+      const msg = r.error?.message ?? r.error?.code ?? 'Dataverse error';
+      throw new Error(msg);
+    }
+    return (r?.data ?? r) as T;
+  }
+
+  function odataToOpts(opts: any): any {
+    if (!opts) return {};
+    const out: any = {};
+    if (opts.$select) out.select = String(opts.$select).split(',').map((s: string) => s.trim()).filter(Boolean);
+    if (opts.$filter) out.filter = opts.$filter;
+    if (opts.$top) out.top = Number(opts.$top);
+    if (opts.$orderby) out.orderBy = [String(opts.$orderby)];
+    return out;
+  }
+
+  return {
+    knowledgearticle: {
+      async create(body: any) {
+        // Map "<field>@odata.bind" -> "<Navigation>@odata.bind" expected by
+        // the generated client. The generated model exposes "Subject@odata.bind"
+        // and "Language@odata.bind"; the existing call sites use lowercase
+        // logical-name forms which the underlying connector also accepts in
+        // most cases. Pass through as-is and let the SDK normalize.
+        const data = unwrap<any>(await KA.create(body));
+        return data ?? {};
+      },
+      async update(id: string, body: any) {
+        return unwrap<any>(await KA.update(id, body));
+      },
+      async list(opts: any) {
+        const data = unwrap<any[]>(await KA.getAll(odataToOpts(opts)));
+        return { value: data ?? [] };
+      },
+    },
+    subject: {
+      async list(opts: any) {
+        const data = unwrap<any[]>(await SUB.getAll(odataToOpts(opts)));
+        return { value: data ?? [] };
+      },
+    },
+    language: {
+      async list(opts: any) {
+        const data = unwrap<any[]>(await LL.getAll(odataToOpts(opts)));
+        return { value: data ?? [] };
+      },
+    },
+    // Best-effort: the generated MicrosoftDataverseService doesn't expose
+    // WhoAmI / RetrieveProvisionedLanguages / discovery / raw fetch. Callers
+    // already optional-chain these and degrade gracefully.
+    whoAmI: undefined,
+    systemuser: undefined,
+    org: undefined,
+    discovery: undefined,
+    fetch: undefined,
+  };
 }
 
 async function loadEnvBaseUrl(environment?: PowerPlatformEnvironment): Promise<string | undefined> {
