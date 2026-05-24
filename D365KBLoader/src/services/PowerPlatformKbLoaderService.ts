@@ -135,17 +135,25 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
    */
   async listEnvironments(): Promise<PowerPlatformEnvironment[]> {
     try {
-      const dv = await loadDataverseClient();
-      const res = await dv.discovery?.listInstances?.();
-      if (res?.value?.length) {
-        return res.value.map((i: any) => ({
-          id: i.EnvironmentId ?? i.Id ?? i.UrlName,
-          displayName: i.FriendlyName ?? i.Name,
-          url: i.Url,
-          region: i.Region,
-          isDefault: !!i.IsDefault,
-          knowledgebaseStatus: 'unknown' as const,
-        } as PowerPlatformEnvironment));
+      const generated = await import('../generated');
+      const res = await generated.MicrosoftDataverseService.GetOrganizations();
+      const items = res?.data?.value ?? [];
+      if (items.length) {
+        const currentHost = typeof window !== 'undefined' ? window.location.host.toLowerCase() : '';
+        return items.map((i: any) => {
+          const url: string = i.Url ?? '';
+          let host = '';
+          try { host = url ? new URL(url).host : ''; } catch { /* noop */ }
+          const id = host || url || (i.FriendlyName ?? 'env');
+          return {
+            id,
+            displayName: i.FriendlyName ?? host ?? 'Environment',
+            url,
+            region: 'prod',
+            isDefault: host !== '' && currentHost.includes(host.toLowerCase().split('.')[0]),
+            knowledgebaseStatus: 'unknown' as const,
+          } as PowerPlatformEnvironment;
+        });
       }
     } catch {
       // Fall through to single-env synthesis below.
