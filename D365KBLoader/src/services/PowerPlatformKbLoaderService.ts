@@ -137,20 +137,35 @@ export class PowerPlatformKbLoaderService implements KbLoaderService {
     try {
       const generated = await import('../generated');
       const res = await generated.MicrosoftDataverseService.GetOrganizations();
-      const items = res?.data?.value ?? [];
-      if (items.length) {
-        const currentHost = typeof window !== 'undefined' ? window.location.host.toLowerCase() : '';
-        return items.map((i: any) => {
-          const url: string = i.Url ?? '';
+      const items = (res?.data?.value ?? []) as Array<{ Url?: string; FriendlyName?: string }>;
+      // The Dataverse connector injects a synthetic "(Current)" placeholder
+      // with Url='current'. Drop it — we flag the real matching org as
+      // current below using the bound Dataverse URL.
+      const realOrgs = items.filter(i => {
+        const url = (i.Url ?? '').trim().toLowerCase();
+        const name = (i.FriendlyName ?? '').trim().toLowerCase();
+        if (!url || url === 'current') return false;
+        if (name === '(current)') return false;
+        return true;
+      });
+      if (realOrgs.length) {
+        // VITE_CURRENT_DATAVERSE_URL is set at build time to the Dataverse
+        // org URL the app's connection is bound to (e.g. https://orgXXXX.crm.dynamics.com/).
+        // Power Apps Code Apps run on apps.powerapps.com so window.location can't
+        // identify the bound org — fall back to that var if present.
+        const boundUrl = ((import.meta as any).env?.VITE_CURRENT_DATAVERSE_URL ?? '').trim().toLowerCase();
+        let boundHost = '';
+        try { boundHost = boundUrl ? new URL(boundUrl).host : ''; } catch { /* noop */ }
+        return realOrgs.map(i => {
+          const url = i.Url ?? '';
           let host = '';
-          try { host = url ? new URL(url).host : ''; } catch { /* noop */ }
-          const id = host || url || (i.FriendlyName ?? 'env');
+          try { host = url ? new URL(url).host.toLowerCase() : ''; } catch { /* noop */ }
           return {
-            id,
+            id: host || url,
             displayName: i.FriendlyName ?? host ?? 'Environment',
             url,
             region: 'prod',
-            isDefault: host !== '' && currentHost.includes(host.toLowerCase().split('.')[0]),
+            isDefault: !!host && !!boundHost && boundHost === host,
             knowledgebaseStatus: 'unknown' as const,
           } as PowerPlatformEnvironment;
         });

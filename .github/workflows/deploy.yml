@@ -21,6 +21,7 @@ jobs:
       PP_ENV_URL: https://orge8583733.crm.dynamics.com/
       ENV_URL: https://orge8583733.crm.dynamics.com/
       VITE_USE_REAL_CONNECTORS: 'true'
+      VITE_CURRENT_DATAVERSE_URL: 'https://orge8583733.crm.dynamics.com/'
     steps:
       - uses: actions/checkout@v4
 
