@@ -1,4 +1,4 @@
-name: Deploy D365 KB Loader (power-apps push)
+name: Deploy D365 KB Loader (pac code push)
 
 on:
   workflow_dispatch:
@@ -26,11 +26,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: D365KBLoader/package-lock.json
 
       - name: Install npm deps
-        run: npm ci --no-audit --no-fund
+        run: npm install --no-audit --no-fund
 
       - name: Run unit tests
         run: npm test --silent
@@ -38,23 +36,23 @@ jobs:
       - name: Build (vite)
         run: npm run build
 
-      - name: Install Power Platform CLI (pac)
-        uses: microsoft/powerplatform-actions/actions-install@v1.9.2
+      - name: Install Power Platform CLI
+        uses: microsoft/powerplatform-actions/actions-install@v1
 
-      - name: Authenticate pac with service principal
+      - name: Add pac to PATH
+        run: dirname "$POWERPLATFORMTOOLS_PACPATH" >> $GITHUB_PATH
+
+      - name: pac auth (service principal)
         run: |
           pac auth create \
-            --environment "$PP_ENV_URL" \
-            --applicationId "$PP_CLIENT_ID" \
-            --clientSecret "$PP_CLIENT_SECRET" \
-            --tenant "$PP_TENANT_ID"
-        env:
-          PP_CLIENT_ID: ${{ secrets.PP_CLIENT_ID }}
-          PP_CLIENT_SECRET: ${{ secrets.PP_CLIENT_SECRET }}
-          PP_TENANT_ID: ${{ secrets.PP_TENANT_ID }}
+            --url "$PP_ENV_URL" \
+            --tenant "${{ secrets.PP_TENANT_ID }}" \
+            --applicationId "${{ secrets.PP_CLIENT_ID }}" \
+            --clientSecret "${{ secrets.PP_CLIENT_SECRET }}" \
+            --accept-cleartext-caching
 
-      - name: Verify pac auth (who-am-i)
+      - name: pac org who
         run: pac org who
 
-      - name: Push Code App
-        run: npx --no-install power-apps push --non-interactive
+      - name: pac code push
+        run: pac code push --environment "$PP_ENV_URL"
