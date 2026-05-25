@@ -1,11 +1,31 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Dialog, DialogSurface, DialogTitle, DialogBody, DialogActions, DialogContent,
-  Button, Spinner, Text, Input, makeStyles, tokens, mergeClasses, MessageBar, MessageBarBody,
+  Button, Spinner, Text, Input, makeStyles, tokens, mergeClasses, MessageBar, MessageBarBody, Divider,
 } from '@fluentui/react-components';
-import { Globe24Filled, Search20Regular, ArrowClockwise20Regular } from '@fluentui/react-icons';
+import { Globe24Filled, Search20Regular, ArrowClockwise20Regular, ArrowRight20Regular } from '@fluentui/react-icons';
 import type { KbLoaderService } from '../services/KbLoaderService';
 import type { SharePointSite } from '../types';
+
+const RECENT_SITES_KEY = 'd365kb.recentSites';
+const MAX_RECENTS = 6;
+
+function readRecents(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_SITES_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : [];
+  } catch { return []; }
+}
+
+function pushRecent(url: string) {
+  try {
+    const cur = readRecents().filter(u => u !== url);
+    cur.unshift(url);
+    localStorage.setItem(RECENT_SITES_KEY, JSON.stringify(cur.slice(0, MAX_RECENTS)));
+  } catch { /* noop */ }
+}
 
 const useStyles = makeStyles({
   list: {
@@ -78,6 +98,8 @@ export function BrowseSiteDialog({ open, service, onPick, onClose }: BrowseSiteD
   const [sites, setSites] = useState<SharePointSite[]>([]);
   const [filter, setFilter] = useState('');
   const [selected, setSelected] = useState<string | undefined>();
+  const [manualUrl, setManualUrl] = useState('');
+  const [recents, setRecents] = useState<string[]>([]);
 
   async function load() {
     setLoading(true);
@@ -95,6 +117,8 @@ export function BrowseSiteDialog({ open, service, onPick, onClose }: BrowseSiteD
     if (open) {
       setSelected(undefined);
       setFilter('');
+      setManualUrl('');
+      setRecents(readRecents());
       load();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -108,12 +132,60 @@ export function BrowseSiteDialog({ open, service, onPick, onClose }: BrowseSiteD
       || (site.description ?? '').toLowerCase().includes(q);
   });
 
+  const manualValid = useMemo(() => /^https:\/\/.+\.sharepoint\.com\/.+/i.test(manualUrl.trim()), [manualUrl]);
+  function commitPick(url: string) {
+    pushRecent(url);
+    onPick(url);
+    onClose();
+  }
+
   return (
     <Dialog open={open} onOpenChange={(_, d) => { if (!d.open) onClose(); }} modalType="modal">
       <DialogSurface style={{ maxWidth: '720px' }}>
         <DialogBody>
           <DialogTitle>Pick a SharePoint site</DialogTitle>
           <DialogContent>
+            <Text size={200} block style={{ color: tokens.colorNeutralForeground3, marginBottom: tokens.spacingVerticalS }}>
+              Paste any SharePoint Online site URL — or pick from sites discovered via the connector below.
+            </Text>
+
+            <div className={s.toolbar}>
+              <Input
+                placeholder="https://contoso.sharepoint.com/sites/Support"
+                value={manualUrl}
+                onChange={(_, d) => setManualUrl(d.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && manualValid) commitPick(manualUrl.trim()); }}
+                style={{ flex: 1 }}
+              />
+              <Button
+                appearance="primary"
+                icon={<ArrowRight20Regular />}
+                disabled={!manualValid}
+                onClick={() => commitPick(manualUrl.trim())}
+              >
+                Use URL
+              </Button>
+            </div>
+
+            {recents.length > 0 && (
+              <div style={{ marginTop: tokens.spacingVerticalS, display: 'flex', flexWrap: 'wrap', gap: tokens.spacingHorizontalXS, alignItems: 'center' }}>
+                <Text size={200} style={{ color: tokens.colorNeutralForeground3, marginRight: tokens.spacingHorizontalXS }}>Recent:</Text>
+                {recents.map(url => (
+                  <Button
+                    key={url}
+                    size="small"
+                    appearance="subtle"
+                    onClick={() => commitPick(url)}
+                    title={url}
+                  >
+                    {url.replace(/^https:\/\//, '').replace(/\/$/, '')}
+                  </Button>
+                ))}
+              </div>
+            )}
+
+            <Divider style={{ marginTop: tokens.spacingVerticalM, marginBottom: tokens.spacingVerticalS }}>or browse</Divider>
+
             <div className={s.toolbar}>
               <Input
                 placeholder="Filter by name, URL, description…"
@@ -134,8 +206,9 @@ export function BrowseSiteDialog({ open, service, onPick, onClose }: BrowseSiteD
             {!loading && !error && sites.length > 0 && sites[0].id?.startsWith('demo-site') && (
               <MessageBar intent="info" style={{ marginTop: 12 }}>
                 <MessageBarBody>
-                  Showing demo SharePoint data — a SharePoint Online connection isn't provisioned in this environment yet.
-                  KB writes to Dataverse are live. For real document ingest, use the "Upload local files" drop zone in the Configure panel.
+                  Site discovery via the SharePoint connector isn't wired yet, so this list shows sample sites.
+                  Paste your real site URL above (e.g. <code>https://yourtenant.sharepoint.com/sites/YourSite</code>) — it'll be remembered for next time.
+                  KB writes to Dataverse are live; for real document ingest today, use the "Upload local files" drop zone in Configure.
                 </MessageBarBody>
               </MessageBar>
             )}
@@ -153,7 +226,7 @@ export function BrowseSiteDialog({ open, service, onPick, onClose }: BrowseSiteD
                     key={site.id}
                     className={mergeClasses(s.row, isSel && s.rowActive)}
                     onClick={() => setSelected(site.url)}
-                    onDoubleClick={() => { onPick(site.url); onClose(); }}
+                    onDoubleClick={() => commitPick(site.url)}
                   >
                     <span className={s.icon}><Globe24Filled /></span>
                     <div className={s.meta}>
@@ -175,7 +248,7 @@ export function BrowseSiteDialog({ open, service, onPick, onClose }: BrowseSiteD
             <Button
               appearance="primary"
               disabled={!selected}
-              onClick={() => { if (selected) { onPick(selected); onClose(); } }}
+              onClick={() => { if (selected) commitPick(selected); }}
             >
               Use this site
             </Button>
