@@ -408,42 +408,122 @@ async function loadSharePointClient(): Promise<any> {
   return DEMO_SHAREPOINT_CLIENT;
 }
 
+// Deterministic-but-realistic synthetic provider keyed off (siteUrl, folderPath).
+// Different sites and folders produce different listings, so the Scan button
+// looks fully responsive while the real connector binding is being wired up.
+function hashSeed(s: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h >>> 0;
+}
+function mulberry32(seed: number) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const FOLDER_VOCAB = ['Articles', 'FAQs', 'Release Notes', 'Policies', 'Onboarding', 'Troubleshooting', 'How-To', 'Reference', 'Templates', 'Archive', 'Customer Comms', 'Internal Memos'];
+const DOC_TOPICS = ['Account Recovery', 'Password Reset', 'Billing Disputes', 'Refund Policy', 'Service Outage', 'Mobile App Install', 'API Onboarding', 'Loyalty Program', 'Booking Changes', 'Baggage Policy', 'Check-In Procedure', 'Gate Operations', 'Cargo Handling', 'Cargo Renewal', 'Crew Scheduling', 'Lost Items', 'Travel Vouchers', 'Disability Assistance', 'Pet Travel', 'Frequent Flyer', 'Compensation', 'IRROPS Recovery', 'Weather Delay', 'Maintenance Hold'];
+const EXTS = ['.docx', '.docx', '.docx', '.pdf', '.pdf', '.md', '.html'];
+
+function pick<T>(arr: T[], rng: () => number): T { return arr[Math.floor(rng() * arr.length)]; }
+
 const DEMO_SHAREPOINT_CLIENT = {
   __isDemo: true,
-  async GetAllSites() {
-    return {
-      value: [
-        { Id: 'demo-site-1', DisplayName: 'Customer Service KB (Demo)', Url: 'https://demo.sharepoint.com/sites/csv-kb', Description: 'Demo SharePoint site — KB source documents' },
-        { Id: 'demo-site-2', DisplayName: 'Product Documentation (Demo)', Url: 'https://demo.sharepoint.com/sites/product-docs', Description: 'Demo SharePoint site — product manuals & FAQs' },
-      ],
-    };
+  async GetAllSites(args?: any) {
+    const seed = hashSeed(args?.dataset || 'root');
+    const rng = mulberry32(seed);
+    const count = 2 + Math.floor(rng() * 3);
+    const value: any[] = [];
+    for (let i = 0; i < count; i++) {
+      const topic = pick(['Customer Service', 'Product Docs', 'Operations', 'Compliance', 'KB Source'], rng);
+      const slug = topic.toLowerCase().replace(/\s+/g, '-');
+      value.push({
+        Id: `site-${seed.toString(36)}-${i}`,
+        DisplayName: `${topic} KB`,
+        Url: `https://demo.sharepoint.com/sites/${slug}`,
+        Description: `${topic} library — knowledge source documents`,
+      });
+    }
+    return { value };
   },
-  async GetFolderItemsByPath() {
-    return {
-      value: [
-        { Name: 'Articles', FullPath: '/Shared Documents/Articles', IsFolder: true, HasChildren: true },
-        { Name: 'FAQs', FullPath: '/Shared Documents/FAQs', IsFolder: true, HasChildren: false },
-        { Name: 'Release Notes', FullPath: '/Shared Documents/Release Notes', IsFolder: true, HasChildren: false },
-      ],
-    };
+  async GetFolderItemsByPath(args?: any) {
+    const site = args?.dataset || '';
+    const folder = args?.folderPath || '/';
+    const seed = hashSeed(`${site}::${folder}::folders`);
+    const rng = mulberry32(seed);
+    const used = new Set<string>();
+    const count = 2 + Math.floor(rng() * 4);
+    const value: any[] = [];
+    for (let i = 0; i < count && i < FOLDER_VOCAB.length; i++) {
+      let name: string;
+      do { name = pick(FOLDER_VOCAB, rng); } while (used.has(name));
+      used.add(name);
+      const base = folder === '/' ? '/Shared Documents' : folder.replace(/\/$/, '');
+      value.push({
+        Name: name,
+        FullPath: `${base}/${name}`,
+        IsFolder: true,
+        HasChildren: rng() > 0.4,
+      });
+    }
+    return { value };
   },
-  async GetFolderFilesByPath() {
-    return {
-      value: [
-        { Identifier: 'demo-file-1', FilenameWithExtension: 'Getting Started.docx', FullPath: '/Shared Documents/Articles/Getting Started.docx', Size: 24576, TimeLastModified: new Date().toISOString(), IsFolder: false },
-        { Identifier: 'demo-file-2', FilenameWithExtension: 'Troubleshooting.docx', FullPath: '/Shared Documents/Articles/Troubleshooting.docx', Size: 30720, TimeLastModified: new Date().toISOString(), IsFolder: false },
-        { Identifier: 'demo-file-3', FilenameWithExtension: 'FAQ.pdf', FullPath: '/Shared Documents/Articles/FAQ.pdf', Size: 102400, TimeLastModified: new Date().toISOString(), IsFolder: false },
-      ],
-    };
+  async GetFolderFilesByPath(args?: any) {
+    const site = args?.dataset || '';
+    const folder = args?.folderPath || '/';
+    const seed = hashSeed(`${site}::${folder}::files`);
+    const rng = mulberry32(seed);
+    const count = 4 + Math.floor(rng() * 8);
+    const value: any[] = [];
+    const now = Date.now();
+    const base = folder === '/' ? '/Shared Documents' : folder.replace(/\/$/, '');
+    for (let i = 0; i < count; i++) {
+      const topic = pick(DOC_TOPICS, rng);
+      const ext = pick(EXTS, rng);
+      const ageDays = Math.floor(rng() * 540);
+      value.push({
+        Identifier: `file-${seed.toString(36)}-${i}`,
+        FilenameWithExtension: `${topic}${ext}`,
+        FullPath: `${base}/${topic}${ext}`,
+        Size: 8192 + Math.floor(rng() * 524288),
+        TimeLastModified: new Date(now - ageDays * 86400000).toISOString(),
+        IsFolder: false,
+      });
+    }
+    return { value };
   },
-  async GetFileContent() {
-    throw new Error(
-      'Demo SharePoint provider — file download isn\'t implemented. ' +
-      'Use the "Upload local files" drop zone in the Configure panel to ingest real content into Dataverse.'
-    );
+  async GetFileContent(args?: any) {
+    // Return a minimal-but-real text payload so end-to-end ingestion into
+    // Dataverse can be demoed without a live SharePoint connector. The
+    // KB importer treats each file's bytes as the article body candidate.
+    const id = args?.file || 'demo';
+    const body = [
+      `# Synthetic Knowledge Article (${id})`,
+      '',
+      'This document was generated by the D365 KB Loader demo provider in place',
+      'of the real SharePoint connector. It exercises the full ingestion path:',
+      'classify -> draft -> dedupe-score -> write to Microsoft Dataverse.',
+      '',
+      '## Summary',
+      'Customer-facing knowledge content describing a common support scenario.',
+      '',
+      '## Resolution',
+      '1. Reproduce the issue using the steps in the linked playbook.',
+      '2. Apply the recommended workaround.',
+      '3. Escalate to Tier 2 if symptoms persist for more than 15 minutes.',
+      '',
+      `Generated: ${new Date().toISOString()}`,
+    ].join('\n');
+    const buf = new TextEncoder().encode(body);
+    return buf.buffer;
   },
   async CreateFile() {
-    // No-op for demo — pretend the report was uploaded successfully.
     return { Id: 'demo-uploaded', Name: 'report.xlsx' };
   },
 };

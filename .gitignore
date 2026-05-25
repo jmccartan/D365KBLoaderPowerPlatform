@@ -6,3 +6,7 @@ dist
 .DS_Store
 .pac
 *.tsbuildinfo
+
+D365KBLoader/sp-add.out
+D365KBLoader/sp-add.err
+D365KBLoader/sp-add.log
